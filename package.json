@@ -1,0 +1,58 @@
+{
+  "name": "zero-to-hero-english",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "install:ci": "bash scripts/install-ci.sh",
+    "dev": "vite",
+    "build": "vinext build && node scripts/validate-artifact.mjs",
+    "build:standalone": "vinext build",
+    "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test:bff": "node --experimental-strip-types --import ./tests/helpers/bff-loader.mjs --test tests/bff-refresh.test.mjs",
+    "test:isolation": "node --experimental-strip-types --import ./tests/helpers/bff-loader.mjs --test tests/session-isolation.test.mjs tests/session-stale-events.test.mjs",
+    "test:ui": "node --experimental-strip-types --test tests/practice-ui.test.mjs tests/calendar-template-days.test.mjs tests/report-filters.test.mjs",
+    "test:mic": "node --experimental-strip-types --import ./tests/helpers/bff-loader.mjs --test tests/mic-gate.test.mjs tests/avatar-turn.test.mjs tests/avatar-runtime.test.mjs tests/weak-network-fallback.test.mjs",
+    "test:voice": "node --experimental-strip-types --import ./tests/helpers/bff-loader.mjs --test tests/voice-room.test.mjs tests/voice-session-bff.test.mjs tests/voice-captions.test.mjs",
+    "test:lists": "node --experimental-strip-types --test tests/pagination.test.mjs tests/roster-filters.test.mjs tests/users-filters.test.mjs",
+    "validate:artifact": "node scripts/validate-artifact.mjs",
+    "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
+    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
+    "doctor": "npx react-doctor@latest"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@spatialreal/web-sdk": "1.0.0-beta.1",
+    "drizzle-orm": "0.45.2",
+    "livekit-client": "2.19.2",
+    "lucide-react": "^1.31.0",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "react-doctor": "^0.9.12",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vinext": "0.0.50",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
+  },
+  "type": "module",
+  "displayName": "Zero to Hero English Platform"
+}

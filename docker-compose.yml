@@ -1,0 +1,53 @@
+# Runs the frontend as a plain Node server (see Dockerfile's top comment -
+# self-hosted standalone output, not the Cloudflare Workers target). No
+# nginx service here - the host's own system nginx (already fronting other
+# sites on this VPS, including the backend's) is the reverse proxy; see
+# nginx/system-site.conf.example for the site config it needs.
+#
+# `frontend` publishes its port to 127.0.0.1 only - reachable from the
+# host's own nginx, not directly from outside.
+#
+# This container also reaches the backend on the SAME host's 127.0.0.1
+# (see .env.example's API_BASE_URL) - a container can't normally see the
+# host's loopback that way, so `extra_hosts` below maps `host.docker.internal`
+# to the host's real gateway IP. Docker Desktop (Windows/Mac) already does
+# this automatically; a real Linux VPS needs it spelled out like this
+# (supported since Docker 20.10, the `host-gateway` special value).
+#
+# Identity (fixed, Tamakkan-only - never a legacy/shared name):
+#   compose project  tamakkan-frontend
+#   container        tamakkan-frontend
+#   image            tamakkan-frontend:<commit-sha>
+# The image is tagged with the exact commit it was built from. TAMAKKAN_IMAGE_TAG
+# is required - there is deliberately no fallback tag and no `latest`.
+# The project and container names are written out here (not derived from a
+# variable or the directory name), so a deploy can never recreate the old
+# legacy shared-name identity that predates this naming.
+#
+# Host port: TAMAKKAN_FRONTEND_HOST_PORT (default 6356, always bound to
+# 127.0.0.1). Only override it for a temporary side-by-side container;
+# production is 6356. The port inside the container stays 6356.
+#
+# Deploying: .github/workflows/deploy.yml -> deploy/tamakkan-deploy.sh.
+# By hand (from this directory):
+#   cp .env.example .env   # fill in real values
+#   TAMAKKAN_IMAGE_TAG="$(git rev-parse HEAD)" docker compose build
+#   TAMAKKAN_IMAGE_TAG="$(git rev-parse HEAD)" docker compose up -d --no-build
+#   docker compose logs -f
+
+name: tamakkan-frontend
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tamakkan-frontend:${TAMAKKAN_IMAGE_TAG:?set TAMAKKAN_IMAGE_TAG to the commit SHA being deployed}
+    container_name: tamakkan-frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:${TAMAKKAN_FRONTEND_HOST_PORT:-6356}:6356"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

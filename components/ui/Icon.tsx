@@ -1,0 +1,65 @@
+import {
+  Bell,
+  BookOpen,
+  Calendar,
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  FileText,
+  Home,
+  LayoutGrid,
+  Lock,
+  LogOut,
+  Mic,
+  Mic2,
+  MicOff,
+  Play,
+  Search,
+  Settings,
+  Star,
+  Target,
+  TrendingUp,
+  Trophy,
+  UserCog,
+  Users,
+  Video,
+  type LucideIcon,
+} from "lucide-react";
+
+const ICONS = {
+  home: Home,
+  challenge: Target,
+  practice: Mic2,
+  lessons: BookOpen,
+  classes: CalendarDays,
+  progress: TrendingUp,
+  people: Users,
+  userAccount: UserCog,
+  report: FileText,
+  program: LayoutGrid,
+  settings: Settings,
+  bell: Bell,
+  search: Search,
+  play: Play,
+  mic: Mic,
+  micOff: MicOff,
+  video: Video,
+  calendar: Calendar,
+  star: Star,
+  trophy: Trophy,
+  clock: Clock,
+  lock: Lock,
+  check: Check,
+  chevronLeft: ChevronLeft,
+  chevronRight: ChevronRight,
+  logout: LogOut,
+} satisfies Record<string, LucideIcon>;
+
+export type IconName = keyof typeof ICONS;
+
+export function Icon({ name, className = "size-5" }: { name: IconName; className?: string }) {
+  const Glyph = ICONS[name];
+  return <Glyph aria-hidden="true" className={className} />;
+}
