@@ -227,7 +227,7 @@ export const en = {
     cartoon: "Cartoon connected",
     connecting: "Connecting",
     disconnected: "Disconnected",
-    failures: "Connection failures in 24h",
+    failures: "Sessions started in 24h that failed",
     ended: "Sessions ended in 24h",
     handoffs: "Avatar to Cartoon handoffs in 24h",
     recent: "Recent sessions",
