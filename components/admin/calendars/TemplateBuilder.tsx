@@ -27,7 +27,7 @@ const END_OF_WEEK_DAYS = [5, 12, 19, 26];
 const POOL_DROP_ID = "pool";
 
 function topicLabel(topic: TopicListItem, kind: TemplateKind): string {
-  return kind === "custom" ? `${LEVEL_LABEL[topic.level]} · ${topic.title}` : topic.title;
+  return kind === "custom" ? `${topic.level_name || LEVEL_LABEL[topic.level]} · ${topic.title}` : topic.title;
 }
 
 /** The not-yet-scheduled-topics panel - itself a drop target (dropping a

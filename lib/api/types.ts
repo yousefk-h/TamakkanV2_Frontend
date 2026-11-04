@@ -35,6 +35,26 @@ export interface ApiErrorBody {
 export type Role = "student" | "teacher" | "administrator" | "root";
 export type PlanType = "standard" | "pro";
 export type Level = "beginner" | "intermediate" | "advanced";
+
+/** A center-defined label mapped to one stable proficiency band. The mapping
+ * keeps existing calendars and agents compatible while allowing the center
+ * to add levels with their own Avatar guidance. */
+export interface LevelProfilePublic extends BaseSchema {
+  code: string;
+  name: string;
+  base_level: Level;
+  avatar_guidance: string;
+  order_index: number;
+  is_active: boolean;
+}
+
+export interface LevelProfileCreateRequest {
+  code: string;
+  name: string;
+  base_level: Level;
+  avatar_guidance: string;
+  order_index?: number;
+}
 export type TranscriptState = "queued" | "extracting" | "pending_review" | "approved_for_ai";
 
 /** Which path the pipeline actually took to produce `raw_transcript` -
@@ -45,6 +65,7 @@ export type TranscriptState = "queued" | "extracting" | "pending_review" | "appr
 export type TranscriptSource = "captions" | "ai_generated";
 export type SubmissionKind = "audio_task" | "friday_video";
 export type ClassKind = "group" | "one_to_one";
+export type HomeworkKind = "lesson" | "writing" | "audio" | "link";
 export type SessionState =
   | "not_started"
   | "connecting"
@@ -344,6 +365,8 @@ export interface ActivityAnalytics {
 export interface TopicListItem extends BaseSchema {
   title: string;
   level: Level;
+  level_profile_id: string | null;
+  level_name: string;
   youtube_urls: string[];
   /** A manually-uploaded cover image if one was set, otherwise a thumbnail
    * derived for free from `youtube_urls[0]` - null only when there's
@@ -385,6 +408,9 @@ export interface TopicListItem extends BaseSchema {
 export interface TopicPublic extends BaseSchema {
   title: string;
   level: Level;
+  level_profile_id: string | null;
+  level_name: string;
+  level_guidance: string;
   youtube_urls: string[];
   thumbnail_url: string | null;
   /** Whether `thumbnail_url` is a manual upload (true) vs. the free
@@ -479,6 +505,7 @@ export interface ReviewTranscriptEnglishResult {
 export interface TopicCreateRequest {
   title: string;
   level: Level;
+  level_profile_id?: string | null;
   youtube_urls?: string[];
   /** Topic organization by unit + order - validated server-side against
    * the authenticated teacher's own (or legacy/shared) units and against
@@ -646,6 +673,28 @@ export interface UpdateLiveClassRequest {
   scheduled_at?: string;
   duration_minutes?: number;
   meet_link?: string;
+}
+
+export interface HomeworkPublic extends BaseSchema {
+  created_by_id: string;
+  title: string;
+  instructions: string;
+  kind: HomeworkKind;
+  due_at: string;
+  participant_ids: string[];
+  topic_id: string | null;
+  topic_title: string | null;
+  external_url: string;
+}
+
+export interface HomeworkCreateRequest {
+  title: string;
+  instructions: string;
+  kind: HomeworkKind;
+  due_at: string;
+  participant_ids: string[];
+  topic_id?: string;
+  external_url?: string;
 }
 
 // --- Sessions (app/schema/live_session.py) - real "Discuss with Mariam" ----

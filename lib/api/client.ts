@@ -36,6 +36,10 @@ import type {
   ListTopicsParams,
   ListUnitsParams,
   LiveClassPublic,
+  LevelProfileCreateRequest,
+  LevelProfilePublic,
+  HomeworkCreateRequest,
+  HomeworkPublic,
   ListReportsParams,
   LiveSessionListItem,
   LiveSessionPublic,
@@ -364,6 +368,16 @@ export const topicsApi = {
     request<TopicAdminDetail>(`${BACKEND_PREFIX}/topics/${topicId}/admin-detail`),
 };
 
+// --- Center-defined curriculum levels --------------------------------------
+
+export const levelProfilesApi = {
+  list: () => request<LevelProfilePublic[]>(`${BACKEND_PREFIX}/level-profiles`),
+  create: (body: LevelProfileCreateRequest) =>
+    request<LevelProfilePublic>(`${BACKEND_PREFIX}/level-profiles`, { method: "POST", json: body }),
+  archive: (profileId: string) =>
+    request<void>(`${BACKEND_PREFIX}/level-profiles/${profileId}`, { method: "DELETE" }),
+};
+
 // --- Units (Topic organization by unit + order) -----------------------------
 
 export const unitsApi = {
@@ -469,6 +483,13 @@ export const classesApi = {
     request<LiveClassPublic>(`${BACKEND_PREFIX}/classes/${classId}`, { method: "PATCH", json: body }),
   /** Administrator only, and only your own class. */
   cancel: (classId: string) => request<void>(`${BACKEND_PREFIX}/classes/${classId}`, { method: "DELETE" }),
+};
+
+export const homeworkApi = {
+  create: (body: HomeworkCreateRequest) => request<HomeworkPublic>(`${BACKEND_PREFIX}/homework`, { method: "POST", json: body }),
+  listForStaff: () => request<HomeworkPublic[]>(`${BACKEND_PREFIX}/homework`),
+  listMine: () => request<HomeworkPublic[]>(`${BACKEND_PREFIX}/homework/me`),
+  cancel: (homeworkId: string) => request<void>(`${BACKEND_PREFIX}/homework/${homeworkId}`, { method: "DELETE" }),
 };
 
 // --- Sessions (real "Discuss with Mariam") ------------------------------------

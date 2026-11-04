@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
-import { ApiError, calendarTemplatesApi, topicsApi } from "@/lib/api/client";
-import type { ArabicInterventionLevel, CalendarTemplate, LessonExercise, Level, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
+import { ApiError, calendarTemplatesApi, levelProfilesApi, topicsApi } from "@/lib/api/client";
+import type { ArabicInterventionLevel, CalendarTemplate, LessonExercise, Level, LevelProfilePublic, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
 import { useTopic } from "@/lib/hooks/useTopics";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
@@ -12,6 +13,7 @@ import { Step2VideoTranscript } from "./Step2VideoTranscript";
 import { Step3AvatarPrompt } from "./Step3AvatarPrompt";
 import { Step4Review } from "./Step4Review";
 import { Step4ExercisesSchedule } from "./Step4ExercisesSchedule";
+import { LessonStudentPreview } from "./LessonStudentPreview";
 
 const TRANSCRIPT_POLL_INTERVAL_MS = 4000;
 const TRANSCRIPT_POLL_MAX_ATTEMPTS = 20;
@@ -50,9 +52,12 @@ export function ProgramBuilder({
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const [title, setTitle] = useState("");
   const [level, setLevel] = useState<Level>(initialLevel);
+  const [levelProfiles, setLevelProfiles] = useState<LevelProfilePublic[]>([]);
+  const [levelProfileId, setLevelProfileId] = useState<string | null>(null);
   const [unitId, setUnitId] = useState<string | null>(null);
   const [orderIndex, setOrderIndex] = useState(0);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -106,6 +111,7 @@ export function ProgramBuilder({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTitle(loadedTopic.title);
     setLevel(loadedTopic.level);
+    setLevelProfileId(loadedTopic.level_profile_id);
     setUnitId(loadedTopic.unit_id);
     setOrderIndex(loadedTopic.order_index);
     setYoutubeUrl(loadedTopic.youtube_urls[0] ?? "");
@@ -126,6 +132,12 @@ export function ProgramBuilder({
     setEditedTranscript(loadedTopic.raw_transcript.map(seg => seg.text.trim()).join(" "));
     setPdfFilename(loadedTopic.pdf_filename ?? null);
   }, [loadedTopic, exercisesDirty]);
+
+  useEffect(() => {
+    let active = true;
+    levelProfilesApi.list().then(items => { if (active) setLevelProfiles(items); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -226,10 +238,10 @@ export function ProgramBuilder({
     setSaveError(null);
     try {
       if (!topicId) {
-        const created = await topicsApi.create({ title: title.trim(), level, unit_id: unitId, order_index: orderIndex });
+        const created = await topicsApi.create({ title: title.trim(), level, level_profile_id: levelProfileId, unit_id: unitId, order_index: orderIndex });
         setTopicId(created.id);
       } else {
-        await topicsApi.update(topicId, { title: title.trim(), unit_id: unitId, order_index: orderIndex });
+        await topicsApi.update(topicId, { title: title.trim(), level_profile_id: levelProfileId, unit_id: unitId, order_index: orderIndex });
       }
       onSaved();
       setStep(2);
@@ -568,7 +580,10 @@ export function ProgramBuilder({
               </span>
               <h2 className="mt-0.5 text-lg md:text-xl">{BUILDER_STEPS[step - 1]}</h2>
             </div>
-            <DialogCloseButton className="text-muted lg:hidden" />
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setShowPreview(true)} className="min-h-11 rounded-xl border border-line bg-bg px-3 text-sm font-bold text-brand-blue">{t("builder.preview")}</button>
+              <DialogCloseButton className="text-muted lg:hidden" />
+            </div>
           </header>
 
           {saveError && (
@@ -585,6 +600,9 @@ export function ProgramBuilder({
                 level={level}
                 onLevelChange={setLevel}
                 levelLocked={!!topicId}
+                levelProfiles={levelProfiles}
+                levelProfileId={levelProfileId}
+                onLevelProfileChange={profile => { setLevelProfileId(profile?.id ?? null); if (profile) setLevel(profile.base_level); }}
                 unitId={unitId}
                 onUnitIdChange={setUnitId}
                 orderIndex={orderIndex}
@@ -710,6 +728,10 @@ export function ProgramBuilder({
           </footer>
         </main>
       </div>
+      {showPreview && createPortal(<Dialog onClose={() => setShowPreview(false)} dismissOnBackdropClick ariaLabel={t("builder.preview")} className="max-h-[calc(100dvh-24px)] w-[min(94vw,560px)] overflow-y-auto rounded-3xl border border-line bg-bg p-4 shadow-2xl backdrop:bg-black/50">
+        <div className="mb-4 flex items-center justify-between gap-3"><div><h2 className="text-xl font-bold">{t("builder.preview")}</h2><p className="text-xs text-muted">{t("builder.previewHint")}</p></div><DialogCloseButton className="grid size-11 place-items-center rounded-xl border border-line" /></div>
+        <LessonStudentPreview title={title} level={level} levelName={levelProfiles.find(profile => profile.id === levelProfileId)?.name ?? loadedTopic?.level_name} exercises={exercises} vocabulary={vocabulary} />
+      </Dialog>, document.body)}
     </Dialog>
   );
 }

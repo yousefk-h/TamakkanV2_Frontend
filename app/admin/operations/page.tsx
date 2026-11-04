@@ -4,21 +4,32 @@ import { useEffect, useState } from "react";
 import { operationsApi } from "@/lib/api/client";
 import type { OperationsSnapshot } from "@/lib/api/types";
 import { useI18n, type MessageKey } from "@/lib/i18n/LocaleProvider";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { useRouter } from "next/navigation";
 
 export default function OperationsPage() {
   const { t, locale } = useI18n();
+  const { state } = useAuth();
+  const router = useRouter();
   const [revision, setRevision] = useState(0);
   const [snapshot, setSnapshot] = useState<OperationsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
+    if (state.status === "authenticated" && state.user.role !== "root") {
+      router.replace("/admin");
+      return;
+    }
+    if (state.status !== "authenticated") return;
     let active = true;
     operationsApi.sessions()
       .then(data => { if (active) { setSnapshot(data); setError(false); setLoading(false); } })
       .catch(() => { if (active) { setError(true); setLoading(false); } });
     return () => { active = false; };
-  }, [revision]);
+  }, [revision, router, state]);
+
+  if (state.status !== "authenticated" || state.user.role !== "root") return null;
 
   const refresh = () => { setLoading(true); setRevision(value => value + 1); };
   const date = (value: string) => new Date(value).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });

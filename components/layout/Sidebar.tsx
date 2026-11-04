@@ -16,6 +16,7 @@ const STUDENT_NAV: NavItem[] = [
   { key: "home", href: "/student", icon: "home" },
   { key: "challenge", href: "/student/challenge", icon: "challenge" },
   { key: "lessons", href: "/student/lessons", icon: "lessons" },
+  { key: "homework", href: "/student/homework", icon: "report" },
   { key: "submissions", href: "/student/submissions", icon: "video" },
   { key: "classes", href: "/student/classes", icon: "classes" },
   { key: "progress", href: "/student/progress", icon: "progress" },
@@ -25,9 +26,11 @@ const ADMIN_NAV: NavItem[] = [
   { key: "home", href: "/admin", icon: "home" },
   { key: "people", href: "/admin/students", icon: "people" },
   { key: "users", href: "/admin/users", icon: "userAccount" },
+  { key: "levels", href: "/admin/levels", icon: "program" },
   { key: "report", href: "/admin/reports", icon: "report" },
   { key: "submissions", href: "/admin/submissions", icon: "video" },
   { key: "exerciseReview", href: "/admin/exercise-review", icon: "report" },
+  { key: "homework", href: "/admin/homework", icon: "report" },
   { key: "program", href: "/admin/topics", icon: "program" },
   { key: "calendars", href: "/admin/calendars", icon: "calendar" },
   { key: "classes", href: "/admin/classes", icon: "classes" },
@@ -39,7 +42,7 @@ function isActive(pathname: string, href: string) {
   return href === "/student" || href === "/admin" ? pathname === href : pathname.startsWith(href);
 }
 
-export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0, showUsersNav = true }: {
+export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0, showUsersNav = true, showOperationsNav = false }: {
   variant: "student" | "admin"; canSwitchView: boolean; onLogout: () => void; unreviewedCount?: number;
   /** The Center Admin Users page (Students + Teachers across the whole center) is Administrator-only - a
    * Teacher doesn't get this nav entry at all, per PROMPT-047 ("Teacher should NOT see Center Admin
@@ -47,11 +50,13 @@ export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0,
    * `/users` scopes a Teacher to their own roster regardless), so hiding the link is a UX nicety, not the only
    * guard. */
   showUsersNav?: boolean;
+  showOperationsNav?: boolean;
 }) {
   const pathname = usePathname();
   const { t } = useI18n();
   const [moreOpen, setMoreOpen] = useState(false);
-  const nav = variant === "student" ? STUDENT_NAV : showUsersNav ? ADMIN_NAV : ADMIN_NAV.filter(item => item.key !== "users");
+  const adminNav = ADMIN_NAV.filter(item => (showUsersNav || !["users", "levels"].includes(item.key)) && (showOperationsNav || item.key !== "operations"));
+  const nav = variant === "student" ? STUDENT_NAV : adminNav;
   const label = (key: string) => t(`sidebar.nav.${variant}.${key}` as MessageKey);
   const moreActive = nav.slice(4).some(item => isActive(pathname, item.href));
   const renderLink = (item: NavItem, compact = false) => (
