@@ -27,6 +27,7 @@ const ADMIN_NAV: NavItem[] = [
   { key: "users", href: "/admin/users", icon: "userAccount" },
   { key: "report", href: "/admin/reports", icon: "report" },
   { key: "submissions", href: "/admin/submissions", icon: "video" },
+  { key: "exerciseReview", href: "/admin/exercise-review", icon: "report" },
   { key: "program", href: "/admin/topics", icon: "program" },
   { key: "calendars", href: "/admin/calendars", icon: "calendar" },
   { key: "classes", href: "/admin/classes", icon: "classes" },

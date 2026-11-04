@@ -272,6 +272,36 @@ export interface LessonExercise {
   min_words: number;
 }
 
+export interface ExerciseAttemptPublic extends BaseSchema {
+  student_id: string;
+  student_name: string;
+  topic_id: string;
+  topic_title: string;
+  exercise_index: number;
+  exercise_kind: LessonExercise["kind"];
+  exercise_prompt: string;
+  answer: number | string | number[];
+  answer_display: string;
+  correct: boolean | null;
+  correct_option: number | null;
+  score: number | null;
+  reviewed: boolean;
+  feedback: string;
+  reviewed_by_id: string | null;
+}
+
+export interface ExerciseAttemptCreateRequest {
+  topic_id: string;
+  exercise_index: number;
+  topic_updated_at: string;
+  answer: number | string | number[];
+}
+
+export interface ExerciseReviewRequest {
+  score: number;
+  feedback: string;
+}
+
 export interface DraftExercisesRequest {
   kind: LessonExercise["kind"];
   count: number;

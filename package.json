@@ -14,7 +14,7 @@
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "test:bff": "node --experimental-strip-types --import ./tests/helpers/bff-loader.mjs --test tests/bff-refresh.test.mjs",
     "test:isolation": "node --experimental-strip-types --import ./tests/helpers/bff-loader.mjs --test tests/session-isolation.test.mjs tests/session-stale-events.test.mjs",
-    "test:ui": "node --experimental-strip-types --test tests/practice-ui.test.mjs tests/calendar-template-days.test.mjs tests/report-filters.test.mjs",
+    "test:ui": "node --experimental-strip-types --test tests/practice-ui.test.mjs tests/calendar-template-days.test.mjs tests/report-filters.test.mjs tests/lesson-builder-order.test.mjs",
     "test:mic": "node --experimental-strip-types --import ./tests/helpers/bff-loader.mjs --test tests/mic-gate.test.mjs tests/avatar-turn.test.mjs tests/avatar-runtime.test.mjs tests/weak-network-fallback.test.mjs",
     "test:voice": "node --experimental-strip-types --import ./tests/helpers/bff-loader.mjs --test tests/voice-room.test.mjs tests/voice-session-bff.test.mjs tests/voice-captions.test.mjs",
     "test:lists": "node --experimental-strip-types --test tests/pagination.test.mjs tests/roster-filters.test.mjs tests/users-filters.test.mjs",

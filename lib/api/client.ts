@@ -27,6 +27,9 @@ import type {
   CreateLiveClassRequest,
   DraftExercisesRequest,
   DraftExercisesResponse,
+  ExerciseAttemptCreateRequest,
+  ExerciseAttemptPublic,
+  ExerciseReviewRequest,
   ListStudentsParams,
   ListSubmissionsForAdminParams,
   ListTeachersParams,
@@ -388,6 +391,19 @@ export const calendarTemplatesApi = {
   activate: (templateId: string) =>
     request<CalendarTemplate>(`${BACKEND_PREFIX}/calendar-templates/${templateId}/activate`, { method: "POST" }),
   delete: (templateId: string) => request<void>(`${BACKEND_PREFIX}/calendar-templates/${templateId}`, { method: "DELETE" }),
+};
+
+// --- Lesson exercise answers -------------------------------------------------
+
+export const exerciseAttemptsApi = {
+  submit: (body: ExerciseAttemptCreateRequest) =>
+    request<ExerciseAttemptPublic>(`${BACKEND_PREFIX}/exercise-attempts`, { method: "POST", json: body }),
+  mine: (topicId: string) =>
+    request<ExerciseAttemptPublic[]>(`${BACKEND_PREFIX}/exercise-attempts/me`, { params: { topic_id: topicId } }),
+  reviewQueue: (params?: { pending_only?: boolean; limit?: number; skip?: number }) =>
+    request<ExerciseAttemptPublic[]>(`${BACKEND_PREFIX}/exercise-attempts/review`, { params }),
+  review: (attemptId: string, body: ExerciseReviewRequest) =>
+    request<ExerciseAttemptPublic>(`${BACKEND_PREFIX}/exercise-attempts/${attemptId}/review`, { method: "PATCH", json: body }),
 };
 
 // --- Submissions -------------------------------------------------------------

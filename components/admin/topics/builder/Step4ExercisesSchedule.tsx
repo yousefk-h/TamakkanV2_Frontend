@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import type { CalendarTemplate, LessonExercise, Level } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
+import { insertLessonBlock, moveLessonBlock } from "@/lib/lessonBuilder/order";
 
 const RESERVED_DAYS = new Set([5, 12, 19, 26]);
 const DAYS = Array.from({ length: 30 }, (_, index) => index + 1).filter(day => !RESERVED_DAYS.has(day));
@@ -16,6 +18,27 @@ function newExercise(kind: LessonExercise["kind"]): LessonExercise {
     options: ANSWER_KINDS.has(kind) ? ["", ""] : [], correct_option: ANSWER_KINDS.has(kind) ? 0 : null,
     explanation: "", content: "", arabic_note: "", media_url: "", pairs: kind === "game" ? [{ left: "", right: "" }, { left: "", right: "" }] : [], min_words: kind === "writing" ? 20 : 0,
   };
+}
+
+function PaletteCard({ kind, label, note, disabled, onAdd }: { kind: (typeof SKILL_KINDS)[number]; label: string; note: string; disabled: boolean; onAdd: () => void }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `palette:${kind}`, disabled });
+  return <button ref={setNodeRef} type="button" disabled={disabled} onClick={onAdd} {...listeners} {...attributes}
+    className={`min-h-20 w-full rounded-xl border border-line bg-card p-3 text-start hover:border-brand-blue hover:bg-brand-primary-pale disabled:cursor-not-allowed disabled:opacity-50 ${isDragging ? "opacity-40" : ""}`}>
+    <b className="block text-sm text-ink">+ {label}</b><span className="mt-1 block text-xs text-muted">{note}</span>
+  </button>;
+}
+
+function DropSlot({ index, label, empty }: { index: number; label: string; empty?: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `slot:${index}` });
+  return <div ref={setNodeRef} className={`my-1 grid place-items-center rounded-lg border-2 border-dashed text-xs font-semibold transition-colors ${empty ? "min-h-24" : "min-h-8"} ${isOver ? "border-brand-blue bg-brand-primary-pale text-brand-blue" : "border-line/70 text-muted"}`}>
+    {empty || isOver ? label : <span aria-hidden="true">↓</span>}
+  </div>;
+}
+
+function BlockDragHandle({ index, label }: { index: number; label: string }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `block:${index}` });
+  return <button ref={setNodeRef} type="button" {...listeners} {...attributes} aria-label={label}
+    className={`min-h-11 min-w-11 cursor-grab touch-none rounded-lg border border-line bg-bg text-lg text-muted active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`} title={label}>⠿</button>;
 }
 
 export function Step4ExercisesSchedule({ exercises, onExercisesChange, templates, loadingTemplates, templateId, onTemplateIdChange, day, onDayChange, level, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions }: {
@@ -37,32 +60,56 @@ export function Step4ExercisesSchedule({ exercises, onExercisesChange, templates
   onAcceptSuggestions: () => void;
   onDiscardSuggestions: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [draftCount, setDraftCount] = useState(3);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const applicable = templates.filter(template => template.kind === "custom" || template.level === level);
   const selected = applicable.find(template => template.id === templateId);
   const update = (index: number, changes: Partial<LessonExercise>) =>
     onExercisesChange(exercises.map((exercise, i) => i === index ? { ...exercise, ...changes } : exercise));
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDragId(null);
+    const id = String(event.active.id);
+    const target = String(event.over?.id ?? "");
+    if (!target.startsWith("slot:")) return;
+    const at = Number(target.slice(5));
+    if (!Number.isInteger(at) || at < 0 || at > exercises.length) return;
+    if (id.startsWith("palette:")) {
+      const kind = id.slice(8) as (typeof SKILL_KINDS)[number];
+      if (!SKILL_KINDS.includes(kind) || kind === "video" && !hasVideo || kind === "vocab" && !hasVocabulary) return;
+      onExercisesChange(insertLessonBlock(exercises, newExercise(kind), at));
+    } else if (id.startsWith("block:")) {
+      const from = Number(id.slice(6));
+      if (!Number.isInteger(from) || from < 0 || from >= exercises.length || from === at || from + 1 === at) return;
+      onExercisesChange(moveLessonBlock(exercises, from, at));
+    }
+  };
 
-  return <section className="mx-auto max-w-[820px] space-y-7">
-    <div>
+  return <section className="mx-auto max-w-[1200px] space-y-7">
+    <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={event => setActiveDragId(String(event.active.id))} onDragCancel={() => setActiveDragId(null)} onDragEnd={handleDragEnd}>
+      <div dir="ltr" className="grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start">
+      <aside dir={locale === "ar" ? "rtl" : "ltr"} className="min-w-0 rounded-2xl border border-line bg-bg p-3 lg:sticky lg:top-0">
+        <h3 className="px-1 text-sm font-bold text-ink">{t("builder.skillPaletteTitle")}</h3>
+        <p className="px-1 text-xs text-muted">{t("builder.dragHint")}</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:max-h-[70vh] lg:grid-cols-1 lg:overflow-y-auto">
+          {SKILL_KINDS.map(kind => {
+            const labels = { video: t("builder.skillVideo"), vocab: t("builder.skillVocab"), image_completion: t("builder.skillImages"), listening: t("builder.skillListening"), grammar: t("builder.skillGrammar"), reading: t("builder.skillReading"), writing: t("builder.skillWriting"), speaking: t("builder.skillSpeaking"), game: t("builder.skillGame"), series: t("builder.skillSeries") };
+            const notes = { video: t("builder.skillVideoDesc"), vocab: t("builder.skillVocabDesc"), image_completion: t("builder.skillImagesDesc"), listening: t("builder.skillListeningDesc"), grammar: t("builder.skillGrammarDesc"), reading: t("builder.skillReadingDesc"), writing: t("builder.skillWritingDesc"), speaking: t("builder.skillSpeakingDesc"), game: t("builder.skillGameDesc"), series: t("builder.skillSeriesDesc") };
+            return <PaletteCard key={kind} kind={kind} label={labels[kind]} note={notes[kind]} disabled={kind === "video" && !hasVideo || kind === "vocab" && !hasVocabulary} onAdd={() => onExercisesChange([...exercises, newExercise(kind)])} />;
+          })}
+        </div>
+      </aside>
+      <div dir={locale === "ar" ? "rtl" : "ltr"} className="min-w-0">
       <h3 className="text-xl font-bold text-ink">{t("builder.exerciseTitle")}</h3>
       <p className="mt-1 text-sm text-muted">{t("builder.exerciseDesc")}</p>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {SKILL_KINDS.map(kind => {
-          const labels = { video: t("builder.skillVideo"), vocab: t("builder.skillVocab"), image_completion: t("builder.skillImages"), listening: t("builder.skillListening"), grammar: t("builder.skillGrammar"), reading: t("builder.skillReading"), writing: t("builder.skillWriting"), speaking: t("builder.skillSpeaking"), game: t("builder.skillGame"), series: t("builder.skillSeries") };
-          const notes = { video: t("builder.skillVideoDesc"), vocab: t("builder.skillVocabDesc"), image_completion: t("builder.skillImagesDesc"), listening: t("builder.skillListeningDesc"), grammar: t("builder.skillGrammarDesc"), reading: t("builder.skillReadingDesc"), writing: t("builder.skillWritingDesc"), speaking: t("builder.skillSpeakingDesc"), game: t("builder.skillGameDesc"), series: t("builder.skillSeriesDesc") };
-          const disabled = kind === "video" && !hasVideo || kind === "vocab" && !hasVocabulary;
-          return <button key={kind} type="button" disabled={disabled} onClick={() => onExercisesChange([...exercises, newExercise(kind)])} className="min-h-24 rounded-xl border border-line bg-card p-3 text-start hover:border-brand-blue hover:bg-brand-primary-pale disabled:cursor-not-allowed disabled:opacity-50">
-            <b className="block text-sm text-ink">+ {labels[kind]}</b><span className="mt-1 block text-xs text-muted">{notes[kind]}</span>
-          </button>;
-        })}
-      </div>
-      {exercises.length === 0 && <p className="mt-4 rounded-xl border border-dashed border-line p-4 text-sm text-muted">{t("builder.noExercises")}</p>}
+      {exercises.length === 0 && <p className="mt-4 text-sm text-muted">{t("builder.noExercises")}</p>}
       <div className="mt-4 space-y-4">
-        {exercises.map((exercise, index) => <div key={index} className="rounded-xl border border-line bg-card p-4">
+        <DropSlot index={0} label={t("builder.dropHere")} empty={exercises.length === 0} />
+        {exercises.map((exercise, index) => <div key={index}>
+        <div className="rounded-xl border border-line bg-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <b className="text-sm">{index + 1}. {exercise.kind.replaceAll("_", " ")}</b>
+            <div className="flex items-center gap-2"><BlockDragHandle index={index} label={t("builder.dragBlock", { number: index + 1 })} /><b className="text-sm">{index + 1}. {exercise.kind.replaceAll("_", " ")}</b></div>
             <div className="flex gap-2">
               <button type="button" disabled={index === 0} onClick={() => { const next = [...exercises]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; onExercisesChange(next); }} className="min-h-11 min-w-11 rounded-lg border border-line disabled:opacity-40" aria-label={t("builder.moveUp")}>↑</button>
               <button type="button" disabled={index === exercises.length - 1} onClick={() => { const next = [...exercises]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; onExercisesChange(next); }} className="min-h-11 min-w-11 rounded-lg border border-line disabled:opacity-40" aria-label={t("builder.moveDown")}>↓</button>
@@ -123,9 +170,12 @@ export function Step4ExercisesSchedule({ exercises, onExercisesChange, templates
               <input value={exercise.explanation} maxLength={500} onChange={event => update(index, { explanation: event.target.value })} className="mt-1 block min-h-11 w-full rounded-lg border border-line bg-bg px-3 font-normal" />
             </label>
           </div>}
-        </div>)}
+        </div><DropSlot index={index + 1} label={t("builder.dropHere")} /></div>)}
+      </div>
       </div>
     </div>
+    <DragOverlay>{activeDragId ? <div className="rounded-xl border border-brand-blue bg-card p-3 text-sm font-bold shadow-lg">{activeDragId.startsWith("palette:") ? activeDragId.slice(8).replaceAll("_", " ") : t("builder.movingBlock")}</div> : null}</DragOverlay>
+    </DndContext>
     <div className="rounded-2xl border border-line bg-card p-5">
       <h3 className="text-xl font-bold text-ink">{t("builder.scheduleTitle")}</h3>
       <p className="mt-1 text-sm text-muted">{t("builder.scheduleDesc")}</p>
