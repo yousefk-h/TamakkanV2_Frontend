@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import type { CalendarTemplate, LessonExercise, Level } from "@/lib/api/types";
+import { topicsApi, ApiError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { insertLessonBlock, moveLessonBlock } from "@/lib/lessonBuilder/order";
 
@@ -16,7 +17,7 @@ function newExercise(kind: LessonExercise["kind"]): LessonExercise {
   return {
     kind, prompt: kind === "video" ? "Watch the lesson video." : kind === "vocab" ? "Learn the key words." : "",
     options: ANSWER_KINDS.has(kind) ? ["", ""] : [], correct_option: ANSWER_KINDS.has(kind) ? 0 : null,
-    explanation: "", content: "", arabic_note: "", media_url: "", pairs: kind === "game" ? [{ left: "", right: "" }, { left: "", right: "" }] : [], min_words: kind === "writing" ? 20 : 0,
+    explanation: "", content: "", arabic_note: "", media_url: "", audio_url: "", pairs: kind === "game" ? [{ left: "", right: "" }, { left: "", right: "" }] : [], min_words: kind === "writing" ? 20 : 0,
   };
 }
 
@@ -41,7 +42,8 @@ function BlockDragHandle({ index, label }: { index: number; label: string }) {
     className={`min-h-11 min-w-11 cursor-grab touch-none rounded-lg border border-line bg-bg text-lg text-muted active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`} title={label}>⠿</button>;
 }
 
-export function Step4ExercisesSchedule({ exercises, onExercisesChange, templates, loadingTemplates, templateId, onTemplateIdChange, day, onDayChange, level, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions }: {
+export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, templates, loadingTemplates, templateId, onTemplateIdChange, day, onDayChange, level, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions }: {
+  topicId: string | null;
   exercises: LessonExercise[];
   onExercisesChange: (exercises: LessonExercise[]) => void;
   templates: CalendarTemplate[];
@@ -63,11 +65,25 @@ export function Step4ExercisesSchedule({ exercises, onExercisesChange, templates
   const { t, locale } = useI18n();
   const [draftCount, setDraftCount] = useState(3);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const applicable = templates.filter(template => template.kind === "custom" || template.level === level);
   const selected = applicable.find(template => template.id === templateId);
   const update = (index: number, changes: Partial<LessonExercise>) =>
     onExercisesChange(exercises.map((exercise, i) => i === index ? { ...exercise, ...changes } : exercise));
+  const uploadMedia = async (index: number, file: File, kind: "image" | "audio") => {
+    if (!topicId) return;
+    setUploadingIndex(index);
+    setUploadError(null);
+    try {
+      const result = await topicsApi.uploadExerciseMedia(topicId, file);
+      if (result.kind !== kind) throw new Error(t("builder.mediaTypeError"));
+      update(index, kind === "image" ? { media_url: result.url } : { audio_url: result.url });
+    } catch (error) {
+      setUploadError(error instanceof ApiError ? error.message : error instanceof Error ? error.message : t("builder.mediaUploadError"));
+    } finally { setUploadingIndex(null); }
+  };
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveDragId(null);
     const id = String(event.active.id);
@@ -142,6 +158,16 @@ export function Step4ExercisesSchedule({ exercises, onExercisesChange, templates
           {exercise.kind === "image_completion" && <label className="mt-3 block text-sm font-semibold">{t("builder.imageUrl")}
             <input type="url" value={exercise.media_url} onChange={event => update(index, { media_url: event.target.value })} placeholder="https://…" className="mt-1 block min-h-11 w-full rounded-lg border border-line bg-bg px-3 font-normal" />
           </label>}
+          {exercise.kind === "image_completion" && <label className="mt-2 block text-sm font-semibold">{t("builder.uploadExerciseImage")}
+            <input type="file" accept="image/jpeg,image/png,image/webp" disabled={!topicId || uploadingIndex !== null} onChange={event => { const file = event.target.files?.[0]; if (file) void uploadMedia(index, file, "image"); event.target.value = ""; }} className="mt-1 block w-full text-sm font-normal" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {exercise.media_url && <img src={exercise.media_url} alt="" className="mt-2 max-h-40 rounded-lg object-contain" />}
+          </label>}
+          {exercise.kind === "listening" && <label className="mt-3 block text-sm font-semibold">{t("builder.uploadAudio")}
+            <input type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/webm,audio/ogg" disabled={!topicId || uploadingIndex !== null} onChange={event => { const file = event.target.files?.[0]; if (file) void uploadMedia(index, file, "audio"); event.target.value = ""; }} className="mt-1 block w-full text-sm font-normal" />
+            {exercise.audio_url && <audio src={exercise.audio_url} controls className="mt-2 w-full" />}
+          </label>}
+          {uploadError && <p role="alert" className="mt-2 text-sm text-brand-coral">{uploadError}</p>}
           {(["listening", "grammar", "reading", "series"] as LessonExercise["kind"][]).includes(exercise.kind) && <label className="mt-3 block text-sm font-semibold">{exercise.kind === "listening" ? t("builder.listeningScript") : exercise.kind === "grammar" ? t("builder.grammarRule") : exercise.kind === "series" ? t("builder.episodeText") : t("builder.readingPassage")}
             <textarea value={exercise.content} maxLength={5000} onChange={event => update(index, { content: event.target.value })} rows={4} className="mt-1 block w-full rounded-lg border border-line bg-bg p-3 font-normal" />
           </label>}

@@ -349,6 +349,11 @@ export const topicsApi = {
     form.append("file", file);
     return request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/pdf`, { method: "POST", form });
   },
+  uploadExerciseMedia: (topicId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ url: string; kind: "image" | "audio" }>(`${BACKEND_PREFIX}/topics/${topicId}/exercise-media`, { method: "POST", form });
+  },
   /** Administrator only. Removes the PDF source and its extracted text. */
   removePdf: (topicId: string) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/pdf`, { method: "DELETE" }),

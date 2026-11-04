@@ -649,7 +649,7 @@ export function ProgramBuilder({
               />
             )}
             {step === 4 && (
-              <Step4ExercisesSchedule exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} templates={templates} loadingTemplates={loadingTemplates} templateId={templateId} onTemplateIdChange={setTemplateId} day={day} onDayChange={setDay} level={level} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)} />
+              <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} templates={templates} loadingTemplates={loadingTemplates} templateId={templateId} onTemplateIdChange={setTemplateId} day={day} onDayChange={setDay} level={level} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)} />
             )}
             {step === 5 && (
               <Step4Review

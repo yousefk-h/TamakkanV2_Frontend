@@ -268,6 +268,7 @@ export interface LessonExercise {
   content: string;
   arabic_note: string;
   media_url: string;
+  audio_url: string;
   pairs: { left: string; right: string }[];
   min_words: number;
 }

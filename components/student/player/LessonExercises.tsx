@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError, exerciseAttemptsApi } from "@/lib/api/client";
+import { ApiError, exerciseAttemptsApi, submissionsApi } from "@/lib/api/client";
+import { Recorder } from "./Recorder";
 import type { ExerciseAttemptPublic, TopicPublic } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
@@ -17,6 +18,7 @@ export function LessonExercises({ topic, onVideo, onDiscuss }: { topic: TopicPub
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<number, string>>({});
   const [loadError, setLoadError] = useState(false);
+  const [speakingStatus, setSpeakingStatus] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     setChoices({});
@@ -80,7 +82,7 @@ export function LessonExercises({ topic, onVideo, onDiscuss }: { topic: TopicPub
         <img src={exercise.media_url} alt={exercise.prompt} className="max-h-80 w-full object-contain" />
       </div>}
 
-      {exercise.kind === "listening" && <button type="button" onClick={() => speak(exercise.content)} className="mb-3 min-h-11 rounded-lg border border-line bg-card px-4 text-sm font-bold text-brand-blue">🔊 {t("player.playListening")}</button>}
+      {exercise.kind === "listening" && (exercise.audio_url ? <audio src={exercise.audio_url} controls className="mb-3 w-full" /> : <button type="button" onClick={() => speak(exercise.content)} className="mb-3 min-h-11 rounded-lg border border-line bg-card px-4 text-sm font-bold text-brand-blue">🔊 {t("player.playListening")}</button>)}
 
       {(["grammar", "reading", "series"] as string[]).includes(exercise.kind) && <div className="mb-3 whitespace-pre-wrap rounded-lg border border-line bg-card p-4 text-sm leading-relaxed text-ink">
         {exercise.content}{exercise.arabic_note && <p dir="rtl" className="mb-0 mt-3 text-muted">{exercise.arabic_note}</p>}
@@ -115,7 +117,14 @@ export function LessonExercises({ topic, onVideo, onDiscuss }: { topic: TopicPub
 
       {errors[index] && <p role="alert" className="mt-3 text-sm text-brand-coral">{errors[index]}</p>}
 
-      {exercise.kind === "speaking" && <button type="button" onClick={onDiscuss} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">{t("player.startSpeaking")}</button>}
+      {exercise.kind === "speaking" && <div className="space-y-3">
+        <Recorder mode="audio" maxSeconds={120} onSubmit={(blob) => {
+          setSpeakingStatus(t("player.savingAnswer"));
+          void submissionsApi.submitAudio(topic.id, blob).then(() => setSpeakingStatus(t("player.speakingSaved"))).catch(error => setSpeakingStatus(error instanceof ApiError ? error.message : t("player.answerSaveFailed")));
+        }} />
+        {speakingStatus && <p role="status" className="text-sm text-muted">{speakingStatus}</p>}
+        <button type="button" onClick={onDiscuss} className="min-h-11 rounded-lg border border-line px-4 text-sm font-bold text-brand-blue">{t("player.startSpeaking")}</button>
+      </div>}
     </section>)}
   </div>;
 }

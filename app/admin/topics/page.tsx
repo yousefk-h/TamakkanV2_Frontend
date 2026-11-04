@@ -210,6 +210,15 @@ export default function AdminTopicsPage() {
   return (
     <main className="mx-auto max-w-[1510px] px-4 py-7 md:px-7.5">
       <PageHead eyebrow={t("adminTopics.eyebrow")} title={t("adminTopics.title")} desc={t("adminTopics.desc")} />
+      <div className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-card p-4">
+        <button type="button" onClick={() => setBuilderTarget({ mode: "create", level: "beginner" })} className="min-h-11 rounded-xl bg-brand-blue px-5 text-sm font-bold text-white">✧ {t("adminTopics.lessonFromSource")}</button>
+        <label className="min-w-[220px] flex-1 text-sm font-semibold">{t("adminTopics.openLesson")}
+          <select value="" onChange={event => { if (event.target.value) setBuilderTarget({ mode: "edit", topicId: event.target.value }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-bg px-3 font-normal">
+            <option value="">{t("adminTopics.chooseLesson")}</option>
+            {LEVEL_ORDER.flatMap(level => topicsByLevel[level] ?? []).map(topic => <option key={topic.id} value={topic.id}>{topic.title}</option>)}
+          </select>
+        </label>
+      </div>
       {loading && <p className="mt-4 text-muted">{t("adminTopics.loading")}</p>}
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
