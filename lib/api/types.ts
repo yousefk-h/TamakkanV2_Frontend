@@ -259,6 +259,32 @@ export interface PracticeScheduleBlock {
   activity: string;
 }
 
+export interface LessonExercise {
+  kind: "video" | "vocab" | "image_completion" | "listening" | "grammar" | "reading" | "writing" | "speaking" | "game" | "series" | "multiple_choice" | "reflection";
+  prompt: string;
+  options: string[];
+  correct_option: number | null;
+  explanation: string;
+  content: string;
+  arabic_note: string;
+  media_url: string;
+  pairs: { left: string; right: string }[];
+  min_words: number;
+}
+
+export interface DraftExercisesRequest {
+  kind: LessonExercise["kind"];
+  count: number;
+  focus?: string;
+  content?: string;
+}
+
+export interface DraftExercisesResponse {
+  exercises: LessonExercise[];
+  source: "approved_transcript";
+  model: string;
+}
+
 /** GET /topics row shape - deliberately no transcript, see the backend's own
  * docstring on TopicListItem for why (payload size). */
 export interface ActivityAnalytics {
@@ -341,6 +367,7 @@ export interface TopicPublic extends BaseSchema {
   vocabulary: VocabularyItem[];
   sentence_starters: SentenceStarterBlock[];
   suggested_practice_schedule: PracticeScheduleBlock[];
+  lesson_exercises: LessonExercise[];
   opening_line: string;
   approved_transcript: string | null;
   // Administrator/Root only:
@@ -433,6 +460,7 @@ export interface TopicCreateRequest {
   vocabulary?: VocabularyItem[];
   sentence_starters?: SentenceStarterBlock[];
   suggested_practice_schedule?: PracticeScheduleBlock[];
+  lesson_exercises?: LessonExercise[];
   avatar_prompt?: string;
   opening_line?: string;
   voice_prompt_mode?: VoicePromptMode;

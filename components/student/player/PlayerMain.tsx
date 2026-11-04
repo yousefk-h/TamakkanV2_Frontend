@@ -13,8 +13,9 @@ import { CartoonSession } from "./CartoonSession";
 import { MariamSession } from "./MariamSession";
 import { PracticeModeSwitch, type PracticeChoice } from "./PracticeModeSwitch";
 import { VoiceSession } from "./VoiceSession";
+import { LessonExercises } from "./LessonExercises";
 
-type PlayerTab = "vocabulary" | "overview" | "discuss";
+type PlayerTab = "vocabulary" | "overview" | "exercises" | "discuss";
 
 /** The 3-tab lesson player - Vocabulary / Overview / Discuss with Mariam.
  * Vocabulary comes first so students preview the topic's key words before
@@ -102,6 +103,7 @@ export function PlayerMain({ topic }: { topic: TopicPublic }) {
     // Video-optional lessons have nothing to watch - omit the tab entirely
     // rather than show it with no video (or a broken placeholder).
     ...(videoId ? [{ key: "overview" as const, label: t("player.tabOverview"), icon: "🎬" }] : []),
+    ...(topic.lesson_exercises?.length ? [{ key: "exercises" as const, label: t("player.tabExercises"), icon: "✍️" }] : []),
     { key: "discuss", label: t("player.tabDiscuss"), icon: "💬" },
   ];
 
@@ -263,6 +265,8 @@ export function PlayerMain({ topic }: { topic: TopicPublic }) {
             )}
           </div>
         )}
+
+        {tab === "exercises" && <LessonExercises topic={topic} onVideo={() => setTab("overview")} onDiscuss={() => setTab("discuss")} />}
 
         {tab === "discuss" && (
           <div className="flex flex-col gap-3 md:gap-4">

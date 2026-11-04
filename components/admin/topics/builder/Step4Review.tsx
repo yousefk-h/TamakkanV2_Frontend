@@ -1,4 +1,4 @@
-import type { Level, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
+import type { LessonExercise, Level, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
@@ -11,6 +11,8 @@ export function Step4Review({
   openingLine,
   warmUpQuestions,
   vocabulary,
+  exercises,
+  schedule,
 }: {
   level: Level;
   title: string;
@@ -20,6 +22,8 @@ export function Step4Review({
   openingLine: string;
   warmUpQuestions: string[];
   vocabulary: VocabularyItem[];
+  exercises: LessonExercise[];
+  schedule: string | null;
 }) {
   const { t } = useI18n();
   const vocabularyBlock = vocabulary.length
@@ -44,6 +48,10 @@ export function Step4Review({
         <span className="inline-block rounded-full bg-white/15 px-2.5 py-1 text-xs font-bold tracking-wide text-white">{t("builder.levelBadge")}</span>
         <h2 className="mb-1 mt-2 text-xl">{LEVEL_LABEL[level]}</h2>
         <p className="m-0 text-sm text-brand-primary-light">{title}</p>
+      </div>
+      <div className="mt-4 rounded-xl border border-line bg-card p-4 text-sm text-ink">
+        <b>{t("builder.exerciseTitle")}: {exercises.length}</b>
+        <p className="mb-0 mt-2">{t("builder.scheduleTitle")}: {schedule ?? t("builder.unscheduled")}</p>
       </div>
       <div className="mt-5 rounded-2xl bg-brand-navy p-4">
         <span className="text-xs font-extrabold tracking-wide text-brand-cyan">{t("builder.finalAvatarContext", { title })}</span>

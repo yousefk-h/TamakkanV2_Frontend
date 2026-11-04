@@ -25,6 +25,8 @@ import type {
   ChangePasswordRequest,
   CreateAccountRequest,
   CreateLiveClassRequest,
+  DraftExercisesRequest,
+  DraftExercisesResponse,
   ListStudentsParams,
   ListSubmissionsForAdminParams,
   ListTeachersParams,
@@ -288,6 +290,9 @@ export const topicsApi = {
   /** Administrator only. Partial update - omitted fields are left as-is. */
   update: (topicId: string, body: TopicUpdateRequest) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}`, { method: "PATCH", json: body }),
+  /** Teacher-reviewed suggestions only; nothing is saved until PATCH /topics/{id}. */
+  draftExercises: (topicId: string, body: DraftExercisesRequest) =>
+    request<DraftExercisesResponse>(`${BACKEND_PREFIX}/topics/${topicId}/draft-exercises`, { method: "POST", json: body }),
   /** Administrator only. Soft delete. */
   delete: (topicId: string) => request<void>(`${BACKEND_PREFIX}/topics/${topicId}`, { method: "DELETE" }),
   /** Administrator only. 202 - kicks off a background job; poll `get()` for

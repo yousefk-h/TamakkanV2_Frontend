@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
-import { ApiError, topicsApi } from "@/lib/api/client";
-import type { ArabicInterventionLevel, Level, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
+import { ApiError, calendarTemplatesApi, topicsApi } from "@/lib/api/client";
+import type { ArabicInterventionLevel, CalendarTemplate, LessonExercise, Level, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
 import { useTopic } from "@/lib/hooks/useTopics";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
@@ -11,6 +11,7 @@ import { Step1Basics } from "./Step1Basics";
 import { Step2VideoTranscript } from "./Step2VideoTranscript";
 import { Step3AvatarPrompt } from "./Step3AvatarPrompt";
 import { Step4Review } from "./Step4Review";
+import { Step4ExercisesSchedule } from "./Step4ExercisesSchedule";
 
 const TRANSCRIPT_POLL_INTERVAL_MS = 4000;
 const TRANSCRIPT_POLL_MAX_ATTEMPTS = 20;
@@ -42,8 +43,8 @@ export function ProgramBuilder({
   onSaved: () => void;
 }) {
   const { t } = useI18n();
-  const BUILDER_STEPS = [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4")];
-  const STEP_BLURBS = [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4")];
+  const BUILDER_STEPS = [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5")];
+  const STEP_BLURBS = [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5")];
   const [topicId, setTopicId] = useState(initialTopicId);
   const { topic: loadedTopic, refetch: refetchTopic } = useTopic(topicId);
   const [step, setStep] = useState(1);
@@ -69,6 +70,15 @@ export function ProgramBuilder({
   const [arabicInterventionLevel, setArabicInterventionLevel] = useState<ArabicInterventionLevel>("low");
   const [openingLine, setOpeningLine] = useState("");
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
+  const [exercises, setExercises] = useState<LessonExercise[]>([]);
+  const [exercisesDirty, setExercisesDirty] = useState(false);
+  const [templates, setTemplates] = useState<CalendarTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [templateId, setTemplateId] = useState("");
+  const [day, setDay] = useState<number | null>(null);
+  const [initialPlacement, setInitialPlacement] = useState<{ templateId: string; day: number } | null>(null);
+  const [generatingExerciseIndex, setGeneratingExerciseIndex] = useState<number | null>(null);
+  const [exerciseSuggestions, setExerciseSuggestions] = useState<{ index: number; exercises: LessonExercise[] } | null>(null);
   const [transcriptState, setTranscriptState] = useState<TranscriptState | null>(null);
   const [transcriptSource, setTranscriptSource] = useState<TranscriptSource | null>(null);
   // The admin's editable copy - seeded from the pipeline's fetched text, but
@@ -110,11 +120,24 @@ export function ProgramBuilder({
     setArabicInterventionLevel(loadedTopic.arabic_intervention_level ?? "low");
     setOpeningLine(loadedTopic.opening_line);
     setVocabulary(loadedTopic.vocabulary);
+    if (!exercisesDirty) setExercises(loadedTopic.lesson_exercises ?? []);
     setTranscriptState(loadedTopic.transcript_state);
     setTranscriptSource(loadedTopic.transcript_source);
     setEditedTranscript(loadedTopic.raw_transcript.map(seg => seg.text.trim()).join(" "));
     setPdfFilename(loadedTopic.pdf_filename ?? null);
-  }, [loadedTopic]);
+  }, [loadedTopic, exercisesDirty]);
+
+  useEffect(() => {
+    let active = true;
+    calendarTemplatesApi.list().then(items => {
+      if (!active) return;
+      setTemplates(items);
+      const placement = items.flatMap(template => template.days.map(entry => ({ template, entry }))).find(({ entry }) => initialTopicId && entry.topic_ids.includes(initialTopicId));
+      if (placement) { setTemplateId(placement.template.id); setDay(placement.entry.day); setInitialPlacement({ templateId: placement.template.id, day: placement.entry.day }); }
+    }).catch(() => { if (active) setSaveError(t("builder.scheduleLoadFailed")); })
+      .finally(() => { if (active) setLoadingTemplates(false); });
+    return () => { active = false; };
+  }, [initialTopicId, t]);
 
   useEffect(() => {
     if (pollStatus !== "polling" || !topicId) return;
@@ -233,6 +256,24 @@ export function ProgramBuilder({
     }
   };
 
+  const handleStep2Continue = async () => {
+    if (!topicId) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const nextUrls = youtubeUrl.trim() ? [youtubeUrl.trim()] : [];
+      if (JSON.stringify(nextUrls) !== JSON.stringify(loadedTopic?.youtube_urls ?? [])) {
+        await topicsApi.update(topicId, { youtube_urls: nextUrls });
+      }
+      onSaved();
+      setStep(3);
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleApproveTranscript = async () => {
     if (!topicId) return;
     if (!window.confirm(t("builderErrors.approveConfirm"))) return;
@@ -241,6 +282,7 @@ export function ProgramBuilder({
     try {
       const updated = await topicsApi.approveTranscript(topicId, { approved_transcript: editedTranscript });
       setTranscriptState(updated.transcript_state);
+      await refetchTopic();
       onSaved();
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : t("builderErrors.approveFailed"));
@@ -401,6 +443,74 @@ export function ProgramBuilder({
     }
   };
 
+  const handleStep4Continue = async () => {
+    if (!topicId) return;
+    if (templateId && !day) { setSaveError(t("builder.chooseDayError")); return; }
+    const answeredKinds = new Set<LessonExercise["kind"]>(["multiple_choice", "image_completion", "listening", "grammar", "reading"]);
+    if (exercises.some(exercise => !exercise.prompt.trim()
+      || answeredKinds.has(exercise.kind) && (exercise.options.length < 2 || exercise.options.some(option => !option.trim()) || exercise.correct_option === null || exercise.correct_option >= exercise.options.length)
+      || (["listening", "grammar", "reading", "series"] as LessonExercise["kind"][]).includes(exercise.kind) && !exercise.content.trim()
+      || exercise.kind === "image_completion" && !/^https?:\/\//.test(exercise.media_url)
+      || exercise.kind === "game" && (exercise.pairs.length < 2 || exercise.pairs.some(pair => !pair.left.trim() || !pair.right.trim())))) {
+      setSaveError(t("builder.exerciseValidation"));
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await topicsApi.update(topicId, { lesson_exercises: exercises.map(exercise => ({ ...exercise, prompt: exercise.prompt.trim(), options: exercise.options.map(option => option.trim()) })) });
+      const placeInTemplate = async (targetId: string, targetDay: number | null) => {
+        const template = await calendarTemplatesApi.get(targetId);
+        const withoutTopic = template.days.map(entry => ({ ...entry, topic_ids: entry.topic_ids.filter(id => id !== topicId), custom_minutes: Object.fromEntries(Object.entries(entry.custom_minutes).filter(([id]) => id !== topicId)) })).filter(entry => entry.topic_ids.length > 0);
+        if (targetDay) {
+          const existing = withoutTopic.find(entry => entry.day === targetDay);
+          if (existing) existing.topic_ids.push(topicId);
+          else withoutTopic.push({ day: targetDay, topic_ids: [topicId], custom_minutes: {} });
+        }
+        await calendarTemplatesApi.update(targetId, { days: withoutTopic.sort((a, b) => a.day - b.day) });
+      };
+      if (templateId && day) await placeInTemplate(templateId, day);
+      if (initialPlacement && initialPlacement.templateId !== templateId) {
+        await placeInTemplate(initialPlacement.templateId, null);
+      }
+      setInitialPlacement(templateId && day ? { templateId, day } : null);
+      onSaved();
+      setStep(5);
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleGenerateExercises = async (index: number, count: number) => {
+    if (!topicId) return;
+    const exercise = exercises[index];
+    setGeneratingExerciseIndex(index);
+    setExerciseSuggestions(null);
+    setSaveError(null);
+    try {
+      const draft = await topicsApi.draftExercises(topicId, { kind: exercise.kind, count, focus: exercise.prompt, content: exercise.content });
+      setExerciseSuggestions({ index, exercises: draft.exercises });
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : t("builder.aiDraftFailed"));
+    } finally {
+      setGeneratingExerciseIndex(null);
+    }
+  };
+
+  const handleAcceptSuggestions = () => {
+    if (!exerciseSuggestions) return;
+    const { index, exercises: drafts } = exerciseSuggestions;
+    const current = exercises[index];
+    const replacePlaceholder = current && !current.prompt.trim();
+    setExercisesDirty(true);
+    setExercises(previous => replacePlaceholder
+      ? [...previous.slice(0, index), ...drafts, ...previous.slice(index + 1)]
+      : [...previous.slice(0, index + 1), ...drafts, ...previous.slice(index + 1)]);
+    setExerciseSuggestions(null);
+  };
+
   return (
     <Dialog
       onClose={onClose}
@@ -539,6 +649,9 @@ export function ProgramBuilder({
               />
             )}
             {step === 4 && (
+              <Step4ExercisesSchedule exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} templates={templates} loadingTemplates={loadingTemplates} templateId={templateId} onTemplateIdChange={setTemplateId} day={day} onDayChange={setDay} level={level} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)} />
+            )}
+            {step === 5 && (
               <Step4Review
                 level={level}
                 title={title}
@@ -548,6 +661,8 @@ export function ProgramBuilder({
                 openingLine={openingLine}
                 warmUpQuestions={warmUpQuestions}
                 vocabulary={vocabulary}
+                exercises={exercises}
+                schedule={templateId && day ? `${templates.find(item => item.id === templateId)?.name ?? ""} · ${t("builder.dayOption", { day })}` : null}
               />
             )}
           </div>
@@ -571,8 +686,8 @@ export function ProgramBuilder({
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
             ) : step === 2 ? (
-              <button type="button" onClick={() => setStep(3)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white">
-                {t("builder.continueBtn")}
+              <button type="button" disabled={saving} onClick={handleStep2Continue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+                {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
             ) : step === 3 ? (
               <button
@@ -581,6 +696,10 @@ export function ProgramBuilder({
                 onClick={handleStep3Continue}
                 className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
               >
+                {saving ? t("builder.saving") : t("builder.continueBtn")}
+              </button>
+            ) : step === 4 ? (
+              <button type="button" disabled={saving || loadingTemplates} onClick={handleStep4Continue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
             ) : (

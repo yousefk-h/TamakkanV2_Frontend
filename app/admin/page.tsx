@@ -5,12 +5,16 @@ import { Avatar, PlanBadge } from "@/components/admin/shared";
 import { useStudentsContext } from "@/lib/students/StudentsContext";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { AdminActivitySummary } from "@/components/analytics/ActivitySummary";
+import { TeacherHome } from "@/components/teacher/TeacherHome";
+import { useAuth } from "@/lib/auth/AuthContext";
 
 export default function AdminHomePage() {
+  const { state } = useAuth();
   const { t } = useI18n();
   const { students, loading, error, refetch } = useStudentsContext();
   const roster = students ?? [];
   const awaiting = roster.filter(s => s.plan === null);
+  if (state.status === "authenticated" && state.user.role === "teacher") return <TeacherHome name={state.user.full_name} />;
   return <main className="mx-auto max-w-[1510px] px-4 py-6 sm:px-6 lg:px-8">
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div className="max-w-2xl"><p className="text-xs font-bold uppercase tracking-widest text-brand-blue">{t("adminHome.eyebrow")}</p>
