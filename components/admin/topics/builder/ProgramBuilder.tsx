@@ -331,14 +331,25 @@ export function ProgramBuilder({
     }
   };
 
+  // Shared by the manual "Generate Transcript" button (YouTube-only sources)
+  // and the automatic kick-off right after a PDF/video upload below - both
+  // just need the one `generate-transcript` call plus switching the poller
+  // on. `start_generation` on the backend already rejects a second call
+  // while one is in flight (409, surfaced here as a normal error) so this
+  // can never schedule two concurrent extraction runs for the same topic.
+  const startTranscriptGeneration = async (): Promise<void> => {
+    if (!topicId) return;
+    await topicsApi.generateTranscript(topicId);
+    setPollStatus("polling");
+  };
+
   const handleGenerateTranscript = async () => {
     if (!topicId) return;
     setSaving(true);
     setSaveError(null);
     try {
       await topicsApi.update(topicId, { youtube_urls: youtubeUrl ? [youtubeUrl] : [] });
-      await topicsApi.generateTranscript(topicId);
-      setPollStatus("polling");
+      await startTranscriptGeneration();
       onSaved();
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : t("builderErrors.transcriptStartFailed"));
@@ -475,6 +486,16 @@ export function ProgramBuilder({
     try {
       const updated = await topicsApi.uploadPdf(topicId, file);
       setPdfFilename(updated.pdf_filename);
+      // Uploading always resets the topic to `queued` server-side (a new
+      // source invalidates any prior transcript draft) - a teacher should
+      // never have to separately click "Generate Transcript" to move past
+      // that. Mirror the manual button's own flow: kick off generation
+      // immediately and surface the same "processing"/review UI it already
+      // drives, instead of leaving an approval action unreachable behind a
+      // state name nobody but this codebase knows.
+      setTranscriptState(updated.transcript_state);
+      setTranscriptSource(updated.transcript_source);
+      await startTranscriptGeneration();
       onSaved();
     } catch (err) {
       setPdfError(err instanceof ApiError ? err.message : t("builderErrors.pdfUploadFailed"));
@@ -505,6 +526,11 @@ export function ProgramBuilder({
     try {
       const updated = await topicsApi.uploadSourceVideo(topicId, file);
       setUploadedVideoFilename(updated.uploaded_video_filename);
+      // Same reset-to-`queued` behavior as the PDF upload above - start
+      // extraction right away instead of waiting on a separate manual click.
+      setTranscriptState(updated.transcript_state);
+      setTranscriptSource(updated.transcript_source);
+      await startTranscriptGeneration();
       onSaved();
     } catch (err) {
       setVideoError(err instanceof ApiError ? err.message : "The video could not be uploaded.");
