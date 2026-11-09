@@ -3,19 +3,131 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Avatar, LevelTag, PlanBadge } from "@/components/admin/shared";
-import { ApiError, submissionsApi } from "@/lib/api/client";
+import { ApiError, submissionsApi, usersApi } from "@/lib/api/client";
 import { usePagination } from "@/lib/hooks/usePagination";
 import { useSessionsForAdmin } from "@/lib/hooks/useSessions";
 import { useStudentAlert } from "@/lib/hooks/useStudentAlerts";
 import { formatDate, formatDuration } from "@/lib/format";
 import { useTopicsContext } from "@/lib/topics/TopicsContext";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
-import type { SubmissionPublic, UserPublic } from "@/lib/api/types";
+import type { ExerciseAttemptHistoryItem, StudentLearningJourney, SubmissionPublic, UserPublic } from "@/lib/api/types";
 import { type MessageKey, useI18n } from "@/lib/i18n/LocaleProvider";
 import { LearningReportDetails } from "@/components/reports/LearningReportDetails";
 import { Pagination } from "@/components/ui/Pagination";
 import { VideoPlayer } from "@/components/ui/VideoPlayer";
 import { EmailVerificationStatus } from "./EmailVerificationStatus";
+
+function LessonExerciseRow({ studentId, topicId, enrollmentId, exercise, t }: {
+  studentId: string; topicId: string; enrollmentId: string;
+  exercise: StudentLearningJourney["enrollments"][number]["lessons"][number]["exercises"][number];
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string;
+}) {
+  const [history, setHistory] = useState<ExerciseAttemptHistoryItem[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const toggle = async () => {
+    if (!open && history === null) {
+      try { setHistory(await usersApi.getExerciseHistory(studentId, topicId, enrollmentId)); }
+      catch { setHistory([]); }
+    }
+    setOpen(o => !o);
+  };
+  return <div className="border-t border-line py-2 first:border-0">
+    <button type="button" onClick={toggle} className="flex w-full flex-wrap items-center justify-between gap-2 text-start text-sm">
+      <span className="min-w-0"><b className="capitalize">{exercise.kind.replaceAll("_", " ")}</b> — {exercise.prompt}</span>
+      <span className="flex shrink-0 items-center gap-2 text-xs">
+        {exercise.latest_correct !== null && <span className={exercise.latest_correct ? "font-bold text-brand-cyan" : "font-bold text-brand-coral"}>
+          {exercise.latest_correct ? t("studentDetail.exerciseCorrect") : t("studentDetail.exerciseIncorrect")}
+        </span>}
+        {exercise.latest_score !== null && <span>{exercise.latest_score}/100</span>}
+        <span className="text-muted">{t("studentDetail.attemptCount", { count: exercise.attempt_count })}</span>
+      </span>
+    </button>
+    {open && <div className="mt-2 grid gap-1.5 ps-3 text-xs">
+      {history === null && <p className="text-muted">{t("common.loading")}</p>}
+      {history?.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-bg px-2 py-1.5">
+        <span className="min-w-0 truncate">{item.answer_display}</span>
+        <span className="flex shrink-0 items-center gap-2">
+          {item.correct !== null && <span className={item.correct ? "text-brand-cyan" : "text-brand-coral"}>{item.correct ? "✓" : "✗"}</span>}
+          {item.superseded && <span className="rounded-full bg-line px-2 py-0.5 text-muted">{t("studentDetail.superseded")}</span>}
+          <span className="text-muted">{formatDate(item.created_at)}</span>
+        </span>
+      </div>)}
+    </div>}
+  </div>;
+}
+
+function LearningJourneySection({ studentId, t }: { studentId: string; t: (key: MessageKey, vars?: Record<string, string | number>) => string }) {
+  const [journey, setJourney] = useState<StudentLearningJourney | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    usersApi.getLearningJourney(studentId)
+      .then(result => { if (!cancelled) setJourney(result); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [studentId]);
+
+  if (failed) return <p role="alert" className="mt-8 text-sm text-muted">{t("studentDetail.journeyLoadFailed")}</p>;
+  if (journey === null) return <p className="mt-8 text-sm text-muted">{t("common.loading")}</p>;
+
+  return <section className="mt-8">
+    <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("studentDetail.learningJourney")}</span>
+    <h2 className="mt-1 text-2xl tracking-tight text-ink">{t("studentDetail.completeActivity")}</h2>
+
+    {journey.enrollments.length === 0 && <p className="mt-3 text-sm text-muted">{t("studentDetail.noEnrollments")}</p>}
+    <div className="mt-3 grid gap-4">
+      {journey.enrollments.map(item => <article key={item.enrollment.id} className="rounded-2xl border border-line bg-card p-5 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <b className="text-base">{item.enrollment.program_name ?? item.enrollment.program_id}</b>
+            {item.enrollment.cohort_name && <span className="ms-2 text-sm text-muted">· {item.enrollment.cohort_name}</span>}
+            {item.enrollment.program_level_name && <span className="ms-2 text-sm text-muted">· {item.enrollment.program_level_name}</span>}
+          </div>
+          {item.has_schedule && <span className="text-xs text-muted">{t("studentDetail.dayOf", { day: item.current_day, total: item.total_days })}</span>}
+        </div>
+        {!item.has_schedule && <p className="mt-2 text-xs text-muted">{t("studentDetail.noSchedule")}</p>}
+        <div className="mt-3 grid gap-2">
+          {item.lessons.map(lesson => <div key={lesson.topic_id} className="rounded-xl border border-line bg-bg p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <b className="text-sm">{lesson.topic_title}</b>
+              <span className="flex items-center gap-2 text-xs">
+                <span className="rounded-full bg-brand-primary-pale px-2 py-0.5 font-bold capitalize text-brand-blue">{lesson.status.replaceAll("_", " ")}</span>
+                {lesson.graded_exercise_count > 0 && <span className="text-muted">{t("studentDetail.exerciseScore", { correct: lesson.correct_exercise_count, total: lesson.graded_exercise_count })}</span>}
+              </span>
+            </div>
+            {lesson.exercises.length > 0 && <div className="mt-2">
+              {lesson.exercises.map(exercise => <LessonExerciseRow key={exercise.exercise_index} studentId={studentId} topicId={lesson.topic_id} enrollmentId={item.enrollment.id} exercise={exercise} t={t} />)}
+            </div>}
+          </div>)}
+        </div>
+      </article>)}
+    </div>
+
+    <h3 className="mb-2 mt-6 text-lg font-bold">{t("studentDetail.aiPracticeHistory")}</h3>
+    {journey.ai_sessions.length === 0 ? <p className="text-sm text-muted">{t("studentDetail.noAiSessions")}</p> : <div className="grid gap-2">
+      {journey.ai_sessions.map(session => <div key={session.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-card p-3 text-sm">
+        <span className="min-w-0">
+          <b className="capitalize">{session.mode.replaceAll("_", " ")}</b>{session.topic_title && ` — ${session.topic_title}`}
+          <span className="ms-2 text-xs text-muted">{formatDate(session.started_at)}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 text-xs text-muted">
+          {session.duration_minutes !== null && <span>{t("studentDetail.minutesShort", { count: session.duration_minutes })}</span>}
+          <span className="capitalize">{session.state}</span>
+          {!session.has_report && <span>{t("studentDetail.noReportYet")}</span>}
+        </span>
+      </div>)}
+    </div>}
+
+    <h3 className="mb-2 mt-6 text-lg font-bold">{t("studentDetail.homeworkAssigned")}</h3>
+    {journey.homework.length === 0 ? <p className="text-sm text-muted">{t("studentDetail.noHomework")}</p> : <div className="grid gap-2">
+      {journey.homework.map(hw => <div key={hw.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-card p-3 text-sm">
+        <span>{hw.title}<span className="ms-2 text-xs text-muted">{t("studentDetail.dueOn", { date: formatDate(hw.due_at) })}</span></span>
+        <span className="text-xs text-muted">{t("studentDetail.submissionNotTracked")}</span>
+      </div>)}
+    </div>}
+  </section>;
+}
 
 function sessionLimitLabel(student: UserPublic, t: (key: MessageKey, vars?: Record<string, string | number>) => string): string {
   const effective = student.duration_override_minutes ?? student.max_session_duration_minutes;
@@ -173,6 +285,8 @@ export function StudentDetailPage({
           )}
         </section>
       )}
+
+      <LearningJourneySection studentId={student.id} t={t} />
 
       <section className="mt-8 rounded-2xl border border-line bg-card p-5 shadow-card">
         <div className="flex items-center justify-between">
