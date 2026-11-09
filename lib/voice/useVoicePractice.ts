@@ -26,7 +26,7 @@ const IDLE_SNAPSHOT: VoiceRoomSnapshot = {
 };
 const noopSubscribe = () => () => {};
 
-export function useVoicePractice(topicId: string, messages: { startError: string; connectionFailed: string }) {
+export function useVoicePractice(topicId: string, messages: { startError: string; connectionFailed: string }, enrollmentId?: string) {
   const [phase, setPhase] = useState<VoicePhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [endCause, setEndCause] = useState<VoiceEndCause | null>(null);
@@ -116,7 +116,7 @@ export function useVoicePractice(topicId: string, messages: { startError: string
     setEndCause(null);
     let started;
     try {
-      started = await sessionsApi.start(topicId, "voice_practice");
+      started = await sessionsApi.start(topicId, "voice_practice", enrollmentId);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : messagesRef.current.startError);
       setPhase("error");
@@ -125,7 +125,7 @@ export function useVoicePractice(topicId: string, messages: { startError: string
       startingRef.current = false;
     }
     await beginWithSession(started);
-  }, [topicId, beginWithSession]);
+  }, [topicId, enrollmentId, beginWithSession]);
 
   // Joins a Cartoon session ALREADY created by a handoff (`sessionsApi.handoff`) - never calls `POST /sessions/start`
   // itself, so a handoff never creates (or joins) a second, parallel session. The caller (`CartoonSession`) is

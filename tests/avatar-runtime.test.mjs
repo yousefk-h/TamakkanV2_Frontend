@@ -454,9 +454,10 @@ test("the audio context comes from the SDK's own helper when it is loaded, else 
 
 test("MariamSession: the audio context is created before any await; the token comes from the API for THIS session", () => {
   const src = read("components/student/player/MariamSession.tsx");
-  const start = src.slice(src.indexOf("const start = useCallback"), src.indexOf("}, [topicId, t, audioSdk]);"));
+  const start = src.slice(src.indexOf("const start = useCallback"), src.indexOf("}, [topicId, enrollmentId, t, audioSdk]);"));
+  assert.ok(start.length > 0 && !start.includes("}, [topicId, enrollmentId, t, audioSdk]);"), "the useCallback body was actually found and bounded (a stale literal here would silently slice to end-of-file)");
   assert.ok(start.indexOf("createAvatarAudioContext(audioSdk)") >= 0 && start.indexOf("createAvatarAudioContext(audioSdk)") < start.indexOf("await "), "unlocked inside the click, before the first await");
-  assert.ok(start.indexOf("await sessionsApi.start(topicId)") < start.indexOf("await sessionsApi.avatarToken(session_id)"), "the token is requested for the session that was just started");
+  assert.ok(start.indexOf("await sessionsApi.start(topicId, undefined, enrollmentId)") >= 0 && start.indexOf("await sessionsApi.start(topicId, undefined, enrollmentId)") < start.indexOf("await sessionsApi.avatarToken(session_id)"), "the token is requested for the session that was just started, with the resolved enrollment carried through");
   assert.match(start, /credential: avatarCredential\.session_token/);
   assert.match(start, /appId: avatarCredential\.app_id/);
   assert.match(start, /avatarId: avatarCredential\.avatar_id/);

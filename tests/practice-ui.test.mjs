@@ -135,7 +135,7 @@ test("wiring: the Only Voice toggle is pure presentation state - it never calls 
 
 test("wiring: Cartoon Practice reuses useVoicePractice (same pipeline) and renders the unmodified VoiceCallView underneath", () => {
   const cartoon = read("components/student/player/CartoonSession.tsx");
-  assert.match(cartoon, /useVoicePractice\(topicId, messages\)/, "no second AI pipeline - same hook as Voice Practice");
+  assert.match(cartoon, /useVoicePractice\(topicId, messages, enrollmentId\)/, "no second AI pipeline - same hook as Voice Practice");
   assert.match(cartoon, /<VoiceCallView/, "falls back to the exact existing call screen, not a fork of it");
   assert.match(cartoon, /room\?\.toggleMicrophone\(\)/);
   assert.match(cartoon, /onEnd=\{end\}/);
@@ -146,7 +146,7 @@ test("wiring: Cartoon Practice reuses useVoicePractice (same pipeline) and rende
 test("scope: Avatar session logic, the mic gate and Voice session logic are untouched by the UI pass", () => {
   assert.ok(!/ActiveSpeakersChanged|createMicGate/.test(read("components/student/player/MariamSession.tsx")), "no gate logic in the component");
   const voice = read("components/student/player/VoiceSession.tsx");
-  assert.match(voice, /useVoicePractice\(topicId, messages\)/);
+  assert.match(voice, /useVoicePractice\(topicId, messages, enrollmentId\)/);
   assert.match(voice, /room\?\.toggleMicrophone\(\)/);
   assert.match(voice, /onEnd=\{end\}/);
   assert.match(read("components/student/player/VoiceCallView.tsx"), /onClick=\{onEnd\}/);
@@ -207,9 +207,9 @@ test("practice mode switch: Cartoon Practice is listed before Avatar Practice, V
 
 test("Voice Practice stays fully intact: its own hook/component are untouched and its mode/routes still work if selected", () => {
   const hook = read("lib/voice/useVoicePractice.ts");
-  assert.match(hook, /sessionsApi\.start\(topicId, "voice_practice"\)/);
+  assert.match(hook, /sessionsApi\.start\(topicId, "voice_practice", enrollmentId\)/);
   const voice = read("components/student/player/VoiceSession.tsx");
-  assert.match(voice, /useVoicePractice\(topicId, messages\)/);
+  assert.match(voice, /useVoicePractice\(topicId, messages, enrollmentId\)/);
   const player = read("components/student/player/PlayerMain.tsx");
-  assert.match(player, /<VoiceSession topicId=\{topic\.id\} watched=\{watched\} onActiveChange=\{setVoiceActive\} \/>/, "still reachable by code path, just not offered by the switch");
+  assert.match(player, /<VoiceSession topicId=\{topic\.id\} enrollmentId=\{enrollmentId\} watched=\{watched\} onActiveChange=\{setVoiceActive\} \/>/, "still reachable by code path, just not offered by the switch");
 });

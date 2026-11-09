@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, homeworkApi } from "@/lib/api/client";
-import type { HomeworkKind, HomeworkPublic, Level, PlanType } from "@/lib/api/types";
+import { ApiError, homeworkApi, programsApi } from "@/lib/api/client";
+import type { HomeworkKind, HomeworkPublic, Level, ProgramPublic } from "@/lib/api/types";
 import { useStudentsContext } from "@/lib/students/StudentsContext";
 import { useTopicsContext } from "@/lib/topics/TopicsContext";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
@@ -14,7 +14,8 @@ export default function AdminHomeworkPage() {
   const [items, setItems] = useState<HomeworkPublic[] | null>(null);
   const [kind, setKind] = useState<HomeworkKind>("lesson");
   const [audienceMode, setAudienceMode] = useState<"program" | "level" | "students">("program");
-  const [program, setProgram] = useState<PlanType>("standard");
+  const [programs, setPrograms] = useState<ProgramPublic[]>([]);
+  const [programId, setProgramId] = useState("");
   const [level, setLevel] = useState<Level>("beginner");
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [studentSearch, setStudentSearch] = useState("");
@@ -27,23 +28,28 @@ export default function AdminHomeworkPage() {
   // Initial API synchronization; state updates happen after the request resolves.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { programsApi.list().then(setPrograms).catch(() => undefined); }, []);
   const roster = useMemo(() => students ?? [], [students]);
   const visibleStudents = useMemo(() => {
     const query = studentSearch.trim().toLocaleLowerCase();
     return query ? roster.filter(student => `${student.full_name} ${student.email}`.toLocaleLowerCase().includes(query)) : roster;
   }, [roster, studentSearch]);
   const recipientIds = useMemo(() => {
-    if (audienceMode === "program") return roster.filter(student => student.plan === program).map(student => student.id);
+    if (audienceMode === "program") return roster.filter(student => student.program_id === programId).map(student => student.id);
     if (audienceMode === "level") return roster.filter(student => student.assigned_level === level).map(student => student.id);
     return selectedStudents;
-  }, [audienceMode, roster, program, level, selectedStudents]);
+  }, [audienceMode, roster, programId, level, selectedStudents]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     setSaving(true); setError("");
     try {
       await homeworkApi.create({ title: String(data.get("title")), instructions: String(data.get("instructions")), kind, due_at: new Date(String(data.get("due_at"))).toISOString(), participant_ids: recipientIds, topic_id: kind === "lesson" ? String(data.get("topic_id")) : undefined, external_url: kind === "link" ? String(data.get("external_url")) : undefined });
-      event.currentTarget.reset(); setSelectedStudents([]); setKind("lesson"); await load();
+      // `event.currentTarget` is nulled by React once the event has finished
+      // dispatching, which already happened by the time this `await` above
+      // resumes - the form reference captured before it stays valid.
+      form.reset(); setSelectedStudents([]); setKind("lesson"); await load();
     } catch (cause) { setError(cause instanceof ApiError ? cause.message : t("homework.saveFailed")); }
     finally { setSaving(false); }
   };
@@ -63,7 +69,7 @@ export default function AdminHomeworkPage() {
           {(["program", "level", "students"] as const).map(mode => <button key={mode} type="button" onClick={() => setAudienceMode(mode)} className={`min-h-11 rounded-lg px-2 text-xs font-bold sm:text-sm ${audienceMode === mode ? "bg-card text-brand-blue shadow-sm" : "text-muted"}`}>{t(`homework.audience.${mode}`)}</button>)}
         </div>
         <div className="mt-3 rounded-xl border border-line p-3">
-          {audienceMode === "program" && <label className="grid gap-1.5 text-sm font-bold">{t("homework.chooseProgram")}<select value={program} onChange={e => setProgram(e.target.value as PlanType)} className="min-h-11 rounded-xl border border-line bg-bg px-3 font-normal"><option value="standard">{t("shared.planStandard")}</option><option value="pro">{t("shared.planPro")}</option></select></label>}
+          {audienceMode === "program" && <label className="grid gap-1.5 text-sm font-bold">{t("homework.chooseProgram")}<select value={programId} onChange={e => setProgramId(e.target.value)} className="min-h-11 rounded-xl border border-line bg-bg px-3 font-normal"><option value="">{programs.length ? t("homework.selectProgram") : t("homework.noPrograms")}</option>{programs.map(program => <option key={program.id} value={program.id}>{program.name} · {program.language}</option>)}</select></label>}
           {audienceMode === "level" && <label className="grid gap-1.5 text-sm font-bold">{t("homework.chooseLevel")}<select value={level} onChange={e => setLevel(e.target.value as Level)} className="min-h-11 rounded-xl border border-line bg-bg px-3 font-normal"><option value="beginner">{t("homework.levelBeginner")}</option><option value="intermediate">{t("homework.levelIntermediate")}</option><option value="advanced">{t("homework.levelAdvanced")}</option></select></label>}
           {audienceMode === "students" && <>
             <div className="flex flex-wrap gap-2"><input value={studentSearch} onChange={e => setStudentSearch(e.target.value)} placeholder={t("homework.searchStudents")} className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 text-sm" /><button type="button" onClick={() => setSelectedStudents(Array.from(new Set([...selectedStudents, ...visibleStudents.map(student => student.id)])))} className="min-h-11 rounded-xl border border-line px-3 text-xs font-bold">{t("homework.selectVisible")}</button><button type="button" onClick={() => setSelectedStudents([])} className="min-h-11 px-3 text-xs font-bold text-brand-coral">{t("homework.clear")}</button></div>

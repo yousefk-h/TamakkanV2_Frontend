@@ -26,14 +26,15 @@ type PlayerTab = "vocabulary" | "overview" | "exercises" | "discuss";
  * real youtube-nocookie.com iframe) is unchanged; "Discuss with Mariam"
  * (Phase 4) is a real LiveKit session - see `MariamSession` - with Voice
  * Practice (`VoiceSession`, the hosted voice-only agent) as a second mode. */
-export function PlayerMain({ topic }: { topic: TopicPublic }) {
+export function PlayerMain({ topic, enrollmentId }: { topic: TopicPublic; enrollmentId?: string }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<PlayerTab>("vocabulary");
   const videoId = extractYouTubeId(topic.youtube_urls[0] ?? "");
+  const hasWatchableVideo = Boolean(videoId || topic.uploaded_video_url);
   // Video-less (e.g. PDF-sourced) topics have no Overview tab and thus no way
   // to ever call setWatched(true) - unlock practice sessions immediately for
   // them instead of leaving the gate permanently closed.
-  const [watched, setWatched] = useState(!videoId);
+  const [watched, setWatched] = useState(!hasWatchableVideo);
   const [expandedTerm, setExpandedTerm] = useState<string | null>(null);
   const [practice, setPractice] = useState<PracticeChoice>("avatar");
   const [voiceActive, setVoiceActive] = useState(false);
@@ -98,23 +99,23 @@ export function PlayerMain({ topic }: { topic: TopicPublic }) {
     [practice, avatarActive, avatarSessionId, handleAvatarToCartoonHandoff],
   );
 
-  const tabs: { key: PlayerTab; label: string; icon: string }[] = [
-    { key: "vocabulary", label: t("player.tabVocabulary"), icon: "🔤" },
+  const tabs: { key: PlayerTab; label: string; shortLabel: string; icon: string }[] = [
+    { key: "vocabulary", label: t("player.tabVocabulary"), shortLabel: t("player.tabWordsShort"), icon: "🔤" },
     // Video-optional lessons have nothing to watch - omit the tab entirely
     // rather than show it with no video (or a broken placeholder).
-    ...(videoId ? [{ key: "overview" as const, label: t("player.tabOverview"), icon: "🎬" }] : []),
-    ...(topic.lesson_exercises?.length ? [{ key: "exercises" as const, label: t("player.tabExercises"), icon: "✍️" }] : []),
-    { key: "discuss", label: t("player.tabDiscuss"), icon: "💬" },
+    ...(hasWatchableVideo ? [{ key: "overview" as const, label: t("player.tabOverview"), shortLabel: t("player.tabWatchShort"), icon: "🎬" }] : []),
+    ...(topic.lesson_exercises?.length ? [{ key: "exercises" as const, label: t("player.tabExercises"), shortLabel: t("player.tabPracticeShort"), icon: "✍️" }] : []),
+    { key: "discuss", label: t("player.tabDiscuss"), shortLabel: t("player.tabSpeakShort"), icon: "💬" },
   ];
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-[18px] border border-line bg-card shadow-card">
-      <div className="px-4 pt-4 md:px-6 md:pt-6">
-        <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{LEVEL_LABEL[topic.level]}</span>
-        <h2 className="my-1 text-xl md:text-2xl">{topic.title}</h2>
+    <div className="-mx-3 min-w-0 overflow-hidden border-y border-line bg-card sm:mx-0 sm:rounded-[22px] sm:border sm:shadow-card">
+      <div className="bg-gradient-to-br from-brand-primary-pale to-card px-5 pb-4 pt-5 md:px-6 md:pt-6">
+        <span className="inline-flex rounded-full bg-card px-3 py-1 text-[11px] font-extrabold uppercase tracking-wide text-brand-blue shadow-sm">{topic.level_name || LEVEL_LABEL[topic.level]}</span>
+        <h1 className="mb-0 mt-2 text-2xl font-extrabold leading-tight text-ink md:text-3xl">{topic.title}</h1>
       </div>
 
-      <div className="mt-2 flex gap-0.5 overflow-x-auto border-b border-line px-3 md:px-5" role="tablist">
+      <div className="grid auto-cols-fr grid-flow-col border-b border-line bg-card px-1 sm:flex sm:gap-1 sm:overflow-x-auto sm:px-5" role="tablist">
         {tabs.map(t => (
           <button
             key={t.key}
@@ -132,17 +133,17 @@ export function PlayerMain({ topic }: { topic: TopicPublic }) {
               // to reveal it, not necessarily to the very start/end.
               e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
             }}
-            className={`inline-flex flex-none items-center gap-1.5 whitespace-nowrap rounded-t-[10px] px-3 py-2.5 text-sm font-bold ${
-              tab === t.key ? "bg-brand-primary-pale text-brand-blue" : "text-muted hover:bg-bg"
+            className={`relative inline-flex min-w-0 flex-col items-center justify-center gap-0.5 px-1 py-3 text-[11px] font-bold sm:flex-none sm:flex-row sm:gap-1.5 sm:whitespace-nowrap sm:rounded-t-[10px] sm:px-3 sm:text-sm ${
+              tab === t.key ? "bg-brand-primary-pale text-brand-blue after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-brand-blue" : "text-muted hover:bg-bg"
             }`}
           >
-            {t.icon && <span aria-hidden="true">{t.icon}</span>}
-            {t.label}
+            {t.icon && <span aria-hidden="true" className="text-base sm:text-sm">{t.icon}</span>}
+            <span className="truncate sm:hidden">{t.shortLabel}</span><span className="hidden sm:inline">{t.label}</span>
           </button>
         ))}
       </div>
 
-      <div className={tab === "discuss" ? "p-2.5 sm:p-4 md:p-6" : "p-4 md:p-6"}>
+      <div className={tab === "discuss" ? "p-3 sm:p-4 md:p-6" : "p-4 sm:p-5 md:p-6"}>
         {tab === "vocabulary" && (
           <div>
             {topic.vocabulary.length === 0 ? (
@@ -255,6 +256,18 @@ export function PlayerMain({ topic }: { topic: TopicPublic }) {
                 )}
               </div>
             )}
+            {!videoId && topic.uploaded_video_url && (
+              <video
+                className="mb-4.5 aspect-video w-full rounded-2xl bg-brand-navy object-contain"
+                src={topic.uploaded_video_url}
+                controls
+                playsInline
+                preload="metadata"
+                onPlay={() => setWatched(true)}
+              >
+                Your browser does not support video playback.
+              </video>
+            )}
             <b className="text-sm">{t("player.discussionQuestions")}</b>
             {questions.length === 0 ? (
               <p className="mt-2 text-xs text-muted">{t("player.noWarmUpQuestions")}</p>
@@ -266,7 +279,7 @@ export function PlayerMain({ topic }: { topic: TopicPublic }) {
           </div>
         )}
 
-        {tab === "exercises" && <LessonExercises topic={topic} onVideo={() => setTab("overview")} onDiscuss={() => setTab("discuss")} />}
+        {tab === "exercises" && <LessonExercises topic={topic} enrollmentId={enrollmentId} onVideo={() => setTab("overview")} onDiscuss={() => setTab("discuss")} />}
 
         {tab === "discuss" && (
           <div className="flex flex-col gap-3 md:gap-4">
@@ -290,6 +303,7 @@ export function PlayerMain({ topic }: { topic: TopicPublic }) {
             {practice === "avatar" ? (
               <MariamSession
                 topicId={topic.id}
+                enrollmentId={enrollmentId}
                 watched={watched}
                 onActiveChange={setAvatarActive}
                 onSessionReady={setAvatarSessionId}
@@ -298,13 +312,14 @@ export function PlayerMain({ topic }: { topic: TopicPublic }) {
             ) : practice === "cartoon" ? (
               <CartoonSession
                 topicId={topic.id}
+                enrollmentId={enrollmentId}
                 watched={watched}
                 onActiveChange={setCartoonActive}
                 handoffStart={cartoonHandoffStart}
                 onHandoffConsumed={() => setCartoonHandoffStart(null)}
               />
             ) : (
-              <VoiceSession topicId={topic.id} watched={watched} onActiveChange={setVoiceActive} />
+              <VoiceSession topicId={topic.id} enrollmentId={enrollmentId} watched={watched} onActiveChange={setVoiceActive} />
             )}
           </div>
         )}

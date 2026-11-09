@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
 import { TemplateBuilder } from "@/components/admin/calendars/TemplateBuilder";
-import { ApiError, usersApi } from "@/lib/api/client";
-import { useTopicsContext } from "@/lib/topics/TopicsContext";
+import { ApiError, programsApi, usersApi } from "@/lib/api/client";
 import { useCalendarTemplatesContext } from "@/lib/calendarTemplates/CalendarTemplatesContext";
-import { LEVEL_EMOJI, LEVEL_LABEL, LEVEL_ORDER } from "@/lib/topics/helpers";
-import type { AssignPlanRequest, Level, PlanType, UserPublic } from "@/lib/api/types";
+import { LEVEL_EMOJI, LEVEL_LABEL } from "@/lib/topics/helpers";
+import type { AssignPlanRequest, Level, PlanType, ProgramPublic, ProgramTopicPublic, UserPublic } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
 function generatePassword(): string {
@@ -43,14 +42,17 @@ export function AssignPlanModal({
   onSaved: () => void;
 }) {
   const { t } = useI18n();
-  const { topicsByLevel } = useTopicsContext();
   const { customTemplates, refetch: refetchTemplates } = useCalendarTemplatesContext();
 
   const [email, setEmail] = useState(student?.email ?? "");
   const [fullName, setFullName] = useState(student?.full_name ?? "");
   const [password, setPassword] = useState(() => (student ? "" : generatePassword()));
   const [planType, setPlanType] = useState<PlanType>(student?.plan ?? "standard");
+  const [programs, setPrograms] = useState<ProgramPublic[]>([]);
+  const [programTopics, setProgramTopics] = useState<{ programId: string; items: ProgramTopicPublic[] } | null>(null);
+  const [selectedProgramId, setSelectedProgramId] = useState(student?.program_id ?? "");
   const [selectedLevel, setSelectedLevel] = useState<Level>(student?.assigned_level ?? "beginner");
+  const [selectedProgramLevelId, setSelectedProgramLevelId] = useState(student?.program_level_id ?? "");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(student?.assigned_plan_template_id ?? "");
   const [startDate, setStartDate] = useState<string>(student?.program_start_date ?? todayLocalIsoDate());
   const [buildingTemplate, setBuildingTemplate] = useState(false);
@@ -58,9 +60,23 @@ export function AssignPlanModal({
   const [error, setError] = useState<string | null>(null);
   const [createdStudent, setCreatedStudent] = useState<UserPublic | null>(null);
 
+  useEffect(() => { programsApi.list().then(setPrograms).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!selectedProgramId) return;
+    let active = true;
+    programsApi.listTopics(selectedProgramId)
+      .then(items => { if (active) setProgramTopics({ programId: selectedProgramId, items }); })
+      .catch(() => { if (active) setProgramTopics({ programId: selectedProgramId, items: [] }); });
+    return () => { active = false; };
+  }, [selectedProgramId]);
+  const selectedProgram = useMemo(() => programs.find(program => program.id === selectedProgramId) ?? null, [programs, selectedProgramId]);
+  const availableProgramLevels = selectedProgram?.levels ?? [];
+  const selectedStageTopics = (programTopics?.programId === selectedProgramId ? programTopics.items : [])
+    .filter(item => item.program_level_id === selectedProgramLevelId && item.status === "published");
+
   const canSave = student
-    ? planType === "standard" || !!selectedTemplateId
-    : email.trim().length > 0 && fullName.trim().length > 0 && password.length > 0 && (planType === "standard" || !!selectedTemplateId);
+    ? (planType === "standard" ? !!selectedProgramId && !!selectedProgramLevelId : !!selectedTemplateId)
+    : email.trim().length > 0 && fullName.trim().length > 0 && password.length > 0 && (planType === "standard" ? !!selectedProgramId && !!selectedProgramLevelId : !!selectedTemplateId);
 
   const handleSave = async () => {
     setSaving(true);
@@ -72,7 +88,7 @@ export function AssignPlanModal({
       const studentId = account.id;
       const planBody: AssignPlanRequest =
         planType === "standard"
-          ? { plan: "standard", assigned_level: selectedLevel, start_date: startDate }
+          ? { plan: "standard", program_id: selectedProgramId, program_level_id: selectedProgramLevelId, start_date: startDate }
           : { plan: "pro", assigned_plan_template_id: selectedTemplateId, start_date: startDate };
       await usersApi.assignPlan(studentId, planBody);
       onSaved();
@@ -146,6 +162,15 @@ export function AssignPlanModal({
         </div>
       )}
 
+      {planType === "standard" && <label className="mt-4 grid gap-1.5 text-sm font-bold text-ink">
+        {t("assignPlanModal.program")}
+        <select value={selectedProgramId} onChange={event => { const id = event.target.value; setSelectedProgramId(id); const next = programs.find(program => program.id === id); const stage = next?.levels[0]; setSelectedProgramLevelId(stage?.id ?? ""); if (stage) setSelectedLevel(stage.difficulty_level); }} required className="rounded-[9px] border border-line bg-card px-3 py-2.5 text-sm outline-brand-blue">
+          <option value="">{programs.length ? t("assignPlanModal.chooseProgram") : t("assignPlanModal.noPrograms")}</option>
+          {programs.map(program => <option key={program.id} value={program.id}>{program.name} · {program.language}</option>)}
+        </select>
+        {selectedProgram?.description && <small className="font-medium text-muted">{selectedProgram.description}</small>}
+      </label>}
+
       <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         <button
           type="button"
@@ -179,31 +204,31 @@ export function AssignPlanModal({
       {planType === "standard" ? (
         <>
           <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-            {LEVEL_ORDER.map((l, i) => (
+            {availableProgramLevels.map((stage, i) => (
               <button
-                key={l}
+                key={stage.id}
                 type="button"
-                onClick={() => setSelectedLevel(l)}
+                onClick={() => { setSelectedProgramLevelId(stage.id); setSelectedLevel(stage.difficulty_level); }}
                 className={`flex items-center gap-2.5 rounded-xl border p-3 text-start ${
-                  selectedLevel === l ? "border-2 border-brand-blue bg-brand-primary-pale" : "border-line bg-card"
+                  selectedProgramLevelId === stage.id ? "border-2 border-brand-blue bg-brand-primary-pale" : "border-line bg-card"
                 }`}
               >
-                <span className="text-xl">{LEVEL_EMOJI[l]}</span>
+                <span className="text-xl">{LEVEL_EMOJI[stage.difficulty_level]}</span>
                 <div>
                   <small className="block text-[10px] font-extrabold tracking-wide text-brand-blue">{t("builder.levelN", { n: i + 1 })}</small>
-                  <b className="text-sm">{LEVEL_LABEL[l]}</b>
-                  <p className="m-0 text-xs text-muted">{t("assignPlanModal.topicsCount", { count: (topicsByLevel[l] ?? []).length })}</p>
+                  <b className="text-sm">{stage.name}</b>
+                  <p className="m-0 text-xs text-muted">{LEVEL_LABEL[stage.difficulty_level]}</p>
                 </div>
               </button>
             ))}
           </div>
           <div className="mt-4 rounded-xl border border-line p-3">
-            <b className="text-sm">{t("assignPlanModal.curriculum", { level: LEVEL_LABEL[selectedLevel] })}</b>
+            <b className="text-sm">{t("assignPlanModal.curriculum", { level: availableProgramLevels.find(stage => stage.id === selectedProgramLevelId)?.name ?? LEVEL_LABEL[selectedLevel] })}</b>
             <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto border-t border-line pt-2">
-              {(topicsByLevel[selectedLevel] ?? []).map((topic, j) => (
+              {selectedStageTopics.map((topic, j) => (
                 <p key={topic.id} className="m-0 flex items-center gap-2 text-xs text-muted">
                   <span className="grid size-[18px] flex-none place-items-center rounded-[5px] bg-bg text-[10px]">{j + 1}</span>
-                  {topic.title}
+                  {topic.topic_title}
                 </p>
               ))}
             </div>
@@ -248,7 +273,7 @@ export function AssignPlanModal({
         {saving
           ? t("assignPlanModal.saving")
           : planType === "standard"
-            ? t("assignPlanModal.assignClass", { level: LEVEL_LABEL[selectedLevel] })
+            ? t("assignPlanModal.assignClass", { level: availableProgramLevels.find(stage => stage.id === selectedProgramLevelId)?.name ?? LEVEL_LABEL[selectedLevel] })
             : t("assignPlanModal.saveCustomPlan")}
       </button>
 

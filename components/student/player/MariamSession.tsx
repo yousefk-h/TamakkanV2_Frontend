@@ -99,12 +99,14 @@ function AvatarBox({ children }: { children: ReactNode }) {
  * never reaches the browser: the API hands out a short-lived session token per session. */
 export function MariamSession({
   topicId,
+  enrollmentId,
   watched,
   onActiveChange,
   onSessionReady,
   onWeakNetworkFallback,
 }: {
   topicId: string;
+  enrollmentId?: string;
   watched: boolean;
   onActiveChange?: (active: boolean) => void;
   // Stage 3: Avatar -> Cartoon handoff. Reports this session's own id once it is live, and `null` once it stops
@@ -210,7 +212,7 @@ export function MariamSession({
     setPhase("connecting");
     setError(null);
     try {
-      const { server_url, participant_token, room_name, max_duration_minutes, session_id } = await sessionsApi.start(topicId);
+      const { server_url, participant_token, room_name, max_duration_minutes, session_id } = await sessionsApi.start(topicId, undefined, enrollmentId);
       // The SpatialReal session token is minted by our API for THIS session (never the API key), together with the
       // public App ID / Avatar ID - the same app and avatar the hosted agent drives.
       const avatarCredential = await sessionsApi.avatarToken(session_id);
@@ -231,7 +233,7 @@ export function MariamSession({
       setError(err instanceof ApiError ? err.message : t("mariamSession.startError"));
       setPhase("error");
     }
-  }, [topicId, t, audioSdk]);
+  }, [topicId, enrollmentId, t, audioSdk]);
 
   const end = useCallback(async () => {
     await avatar.disconnect();

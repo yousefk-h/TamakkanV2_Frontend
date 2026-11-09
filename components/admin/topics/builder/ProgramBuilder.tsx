@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
-import { ApiError, calendarTemplatesApi, levelProfilesApi, topicsApi } from "@/lib/api/client";
-import type { ArabicInterventionLevel, CalendarTemplate, LessonExercise, Level, LevelProfilePublic, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
+import { ApiError, levelProfilesApi, topicsApi } from "@/lib/api/client";
+import type { ArabicInterventionLevel, LessonExercise, Level, LevelProfilePublic, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
 import { useTopic } from "@/lib/hooks/useTopics";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
@@ -14,6 +14,7 @@ import { Step3AvatarPrompt } from "./Step3AvatarPrompt";
 import { Step4Review } from "./Step4Review";
 import { Step4ExercisesSchedule } from "./Step4ExercisesSchedule";
 import { LessonStudentPreview } from "./LessonStudentPreview";
+import { TopicProgramAssignments } from "./TopicProgramAssignments";
 
 const TRANSCRIPT_POLL_INTERVAL_MS = 4000;
 const TRANSCRIPT_POLL_MAX_ATTEMPTS = 20;
@@ -24,6 +25,18 @@ const TRANSCRIPT_POLL_MAX_ATTEMPTS = 20;
 // when done" mechanism for either yet.
 const DRAFT_POLL_INTERVAL_MS = 4000;
 const DRAFT_POLL_MAX_ATTEMPTS = 20;
+
+function formatSourceTranscript(segments: { text: string }[], labels: string[]): string {
+  if (new Set(labels).size <= 1) return segments.map(segment => segment.text.trim()).join(" ");
+  const groups: { label: string; text: string[] }[] = [];
+  segments.forEach((segment, index) => {
+    const label = labels[index] || `Source ${index + 1}`;
+    const last = groups.at(-1);
+    if (last?.label === label) last.text.push(segment.text.trim());
+    else groups.push({ label, text: [segment.text.trim()] });
+  });
+  return groups.map(group => `[SOURCE: ${group.label}]\n${group.text.join(" ")}`).join("\n\n");
+}
 
 /** The backend has no batch-publish concept - every topic is its own resource
  * (POST/PATCH/DELETE /topics/{id}). This wizard operates on exactly one real
@@ -38,21 +51,43 @@ export function ProgramBuilder({
   initialLevel,
   onClose,
   onSaved,
+  onComplete,
+  hideProgramAssignments = false,
 }: {
   topicId: string | null;
   initialLevel: Level;
   onClose: () => void;
   onSaved: () => void;
+  onComplete?: (topicId: string) => Promise<void> | void;
+  hideProgramAssignments?: boolean;
 }) {
   const { t } = useI18n();
-  const BUILDER_STEPS = [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5")];
-  const STEP_BLURBS = [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5")];
+  const BUILDER_STEPS = [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5"), t("builder.stepName6")];
+  const STEP_BLURBS = [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5"), t("builder.stepBlurb6")];
   const [topicId, setTopicId] = useState(initialTopicId);
   const { topic: loadedTopic, refetch: refetchTopic } = useTopic(topicId);
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+
+  const handleDone = async () => {
+    if (!topicId || !onComplete) {
+      onClose();
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onComplete(topicId);
+      onSaved();
+      onClose();
+    } catch (cause) {
+      setSaveError(cause instanceof ApiError ? cause.message : t("builderErrors.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const [title, setTitle] = useState("");
   const [level, setLevel] = useState<Level>(initialLevel);
@@ -77,11 +112,6 @@ export function ProgramBuilder({
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [exercises, setExercises] = useState<LessonExercise[]>([]);
   const [exercisesDirty, setExercisesDirty] = useState(false);
-  const [templates, setTemplates] = useState<CalendarTemplate[]>([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(true);
-  const [templateId, setTemplateId] = useState("");
-  const [day, setDay] = useState<number | null>(null);
-  const [initialPlacement, setInitialPlacement] = useState<{ templateId: string; day: number } | null>(null);
   const [generatingExerciseIndex, setGeneratingExerciseIndex] = useState<number | null>(null);
   const [exerciseSuggestions, setExerciseSuggestions] = useState<{ index: number; exercises: LessonExercise[] } | null>(null);
   const [transcriptState, setTranscriptState] = useState<TranscriptState | null>(null);
@@ -100,6 +130,9 @@ export function ProgramBuilder({
   const [pdfFilename, setPdfFilename] = useState<string | null>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [uploadedVideoFilename, setUploadedVideoFilename] = useState<string | null>(null);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   // Seed the editable fields once the real topic loads (edit mode only -
   // create mode never has a `loadedTopic` until after step 1's first save).
@@ -129,8 +162,9 @@ export function ProgramBuilder({
     if (!exercisesDirty) setExercises(loadedTopic.lesson_exercises ?? []);
     setTranscriptState(loadedTopic.transcript_state);
     setTranscriptSource(loadedTopic.transcript_source);
-    setEditedTranscript(loadedTopic.raw_transcript.map(seg => seg.text.trim()).join(" "));
+    setEditedTranscript(formatSourceTranscript(loadedTopic.raw_transcript, loadedTopic.transcript_source_labels));
     setPdfFilename(loadedTopic.pdf_filename ?? null);
+    setUploadedVideoFilename(loadedTopic.uploaded_video_filename ?? null);
   }, [loadedTopic, exercisesDirty]);
 
   useEffect(() => {
@@ -138,18 +172,6 @@ export function ProgramBuilder({
     levelProfilesApi.list().then(items => { if (active) setLevelProfiles(items); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    calendarTemplatesApi.list().then(items => {
-      if (!active) return;
-      setTemplates(items);
-      const placement = items.flatMap(template => template.days.map(entry => ({ template, entry }))).find(({ entry }) => initialTopicId && entry.topic_ids.includes(initialTopicId));
-      if (placement) { setTemplateId(placement.template.id); setDay(placement.entry.day); setInitialPlacement({ templateId: placement.template.id, day: placement.entry.day }); }
-    }).catch(() => { if (active) setSaveError(t("builder.scheduleLoadFailed")); })
-      .finally(() => { if (active) setLoadingTemplates(false); });
-    return () => { active = false; };
-  }, [initialTopicId, t]);
 
   useEffect(() => {
     if (pollStatus !== "polling" || !topicId) return;
@@ -161,7 +183,7 @@ export function ProgramBuilder({
         .then(t => {
           setTranscriptState(t.transcript_state);
           setTranscriptSource(t.transcript_source);
-          setEditedTranscript(t.raw_transcript.map(seg => seg.text.trim()).join(" "));
+          setEditedTranscript(formatSourceTranscript(t.raw_transcript, t.transcript_source_labels));
           if (t.transcript_state !== "queued" && t.transcript_state !== "extracting") {
             setPollStatus("idle");
             clearInterval(interval);
@@ -419,6 +441,36 @@ export function ProgramBuilder({
     }
   };
 
+  const handleUploadVideo = async (file: File) => {
+    if (!topicId) return;
+    setUploadingVideo(true);
+    setVideoError(null);
+    try {
+      const updated = await topicsApi.uploadSourceVideo(topicId, file);
+      setUploadedVideoFilename(updated.uploaded_video_filename);
+      onSaved();
+    } catch (err) {
+      setVideoError(err instanceof ApiError ? err.message : "The video could not be uploaded.");
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
+
+  const handleRemoveVideo = async () => {
+    if (!topicId) return;
+    setUploadingVideo(true);
+    setVideoError(null);
+    try {
+      await topicsApi.removeSourceVideo(topicId);
+      setUploadedVideoFilename(null);
+      onSaved();
+    } catch (err) {
+      setVideoError(err instanceof ApiError ? err.message : "The video could not be removed.");
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
+
   const handleApplyCorrections = () => {
     if (!englishReview) return;
     setEditedTranscript(englishReview.corrected_transcript);
@@ -457,7 +509,6 @@ export function ProgramBuilder({
 
   const handleStep4Continue = async () => {
     if (!topicId) return;
-    if (templateId && !day) { setSaveError(t("builder.chooseDayError")); return; }
     const answeredKinds = new Set<LessonExercise["kind"]>(["multiple_choice", "image_completion", "listening", "grammar", "reading"]);
     if (exercises.some(exercise => !exercise.prompt.trim()
       || answeredKinds.has(exercise.kind) && (exercise.options.length < 2 || exercise.options.some(option => !option.trim()) || exercise.correct_option === null || exercise.correct_option >= exercise.options.length)
@@ -471,21 +522,6 @@ export function ProgramBuilder({
     setSaveError(null);
     try {
       await topicsApi.update(topicId, { lesson_exercises: exercises.map(exercise => ({ ...exercise, prompt: exercise.prompt.trim(), options: exercise.options.map(option => option.trim()) })) });
-      const placeInTemplate = async (targetId: string, targetDay: number | null) => {
-        const template = await calendarTemplatesApi.get(targetId);
-        const withoutTopic = template.days.map(entry => ({ ...entry, topic_ids: entry.topic_ids.filter(id => id !== topicId), custom_minutes: Object.fromEntries(Object.entries(entry.custom_minutes).filter(([id]) => id !== topicId)) })).filter(entry => entry.topic_ids.length > 0);
-        if (targetDay) {
-          const existing = withoutTopic.find(entry => entry.day === targetDay);
-          if (existing) existing.topic_ids.push(topicId);
-          else withoutTopic.push({ day: targetDay, topic_ids: [topicId], custom_minutes: {} });
-        }
-        await calendarTemplatesApi.update(targetId, { days: withoutTopic.sort((a, b) => a.day - b.day) });
-      };
-      if (templateId && day) await placeInTemplate(templateId, day);
-      if (initialPlacement && initialPlacement.templateId !== templateId) {
-        await placeInTemplate(initialPlacement.templateId, null);
-      }
-      setInitialPlacement(templateId && day ? { templateId, day } : null);
       onSaved();
       setStep(5);
     } catch (err) {
@@ -529,50 +565,8 @@ export function ProgramBuilder({
       ariaLabel={t("builder.title")}
       className="fixed inset-0 z-[60] h-[calc(var(--dialog-available-height,100dvh)-24px)] w-full rounded-2xl border-0 bg-bg p-0"
     >
-      <div className="grid h-full min-h-0 lg:grid-cols-[270px_minmax(0,1fr)]">
-        <aside className="relative hidden flex-col overflow-y-auto bg-brand-navy p-6 text-white lg:flex">
-          <DialogCloseButton className="absolute end-3 top-2 text-brand-primary-light/70" />
-          <span className="mb-6 grid size-9 place-items-center rounded-xl bg-gradient-to-br from-brand-blue to-brand-cyan text-lg font-black italic">
-            Z
-          </span>
-          <p className="text-xs font-extrabold tracking-[1.5px] text-brand-cyan">{t("builder.title").toUpperCase()}</p>
-          <h2 className="mb-7 mt-1.5 text-xl leading-tight tracking-tight">{t("builder.navSubtitle")}</h2>
-          <nav className="grid gap-1.5">
-            {BUILDER_STEPS.map((s, i) => (
-              <button
-                key={s}
-                type="button"
-                disabled={!topicId && i > 0}
-                onClick={() => topicId && setStep(i + 1)}
-                className={`flex items-center gap-2.5 rounded-xl p-2.5 text-start disabled:cursor-not-allowed disabled:opacity-60 ${
-                  step === i + 1 ? "bg-brand-primary-dark" : ""
-                }`}
-              >
-                <span
-                  className={`grid size-[29px] flex-none place-items-center rounded-full border text-sm font-extrabold ${
-                    step > i + 1
-                      ? "border-brand-cyan bg-brand-cyan text-white"
-                      : step === i + 1
-                        ? "border-brand-blue bg-brand-blue text-white"
-                        : "border-brand-primary-light/30 text-brand-primary-light"
-                  }`}
-                >
-                  {step > i + 1 ? "✓" : i + 1}
-                </span>
-                <div>
-                  <b className="block text-sm text-brand-primary-light">{s}</b>
-                  <small className="text-[11px] text-brand-primary-light/70">{STEP_BLURBS[i]}</small>
-                </div>
-              </button>
-            ))}
-          </nav>
-          <div className="mt-auto rounded-2xl border border-brand-primary-light/20 bg-brand-primary-dark p-4">
-            <b className="text-sm">{t("builder.howThisWorks")}</b>
-            <p className="m-0 mt-1.5 text-xs leading-relaxed text-brand-primary-light/70">{t("builder.howThisWorksDesc")}</p>
-          </div>
-        </aside>
-
-        <main className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className="flex h-full min-h-0">
+        <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line bg-card px-4 py-3.5 md:px-8">
             <div className="min-w-0">
               <span className="text-xs font-extrabold tracking-wide text-muted">
@@ -582,9 +576,29 @@ export function ProgramBuilder({
             </div>
             <div className="flex items-center gap-2">
               <button type="button" onClick={() => setShowPreview(true)} className="min-h-11 rounded-xl border border-line bg-bg px-3 text-sm font-bold text-brand-blue">{t("builder.preview")}</button>
-              <DialogCloseButton className="text-muted lg:hidden" />
+              <DialogCloseButton className="grid size-11 place-items-center rounded-xl border border-brand-coral bg-brand-coral-pale text-xl font-bold text-brand-coral hover:bg-brand-coral-pale/70" />
             </div>
           </header>
+
+          <nav aria-label="Lesson builder steps" className="shrink-0 border-b border-line bg-card px-4 py-3 md:px-8">
+            <div className="mx-auto flex max-w-[1200px] gap-2 overflow-x-auto pb-1">
+              {BUILDER_STEPS.map((name, index) => {
+                const number = index + 1;
+                const available = !!topicId || index === 0;
+                return <details key={name} className="group min-w-[145px] shrink-0" open={step === number}>
+                  <summary onClick={() => { if (available) setStep(number); }} className={`flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-xl border px-3 text-sm font-bold transition-colors ${step === number ? "border-brand-blue bg-brand-primary-pale text-brand-blue" : "border-line bg-bg text-ink"} ${!available ? "pointer-events-none opacity-45" : ""}`}>
+                    <span className={`grid size-6 shrink-0 place-items-center rounded-full text-xs ${step > number ? "bg-brand-cyan text-white" : step === number ? "bg-brand-blue text-white" : "bg-line text-muted"}`}>{step > number ? "✓" : number}</span>
+                    <span className="min-w-0 truncate">{name}</span>
+                  </summary>
+                  <p className="px-2 pt-1.5 text-xs leading-relaxed text-muted">{STEP_BLURBS[index]}</p>
+                </details>;
+              })}
+              <details className="min-w-[155px] shrink-0 rounded-xl border border-line bg-bg px-3 py-2">
+                <summary className="cursor-pointer list-none text-sm font-bold text-ink">{t("builder.howThisWorks")}</summary>
+                <p className="mb-0 mt-1.5 text-xs leading-relaxed text-muted">{t("builder.howThisWorksDesc")}</p>
+              </details>
+            </div>
+          </nav>
 
           {saveError && (
             <p role="alert" className="mx-4 mt-4 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral md:mx-8">
@@ -637,6 +651,11 @@ export function ProgramBuilder({
                 onRemovePdf={handleRemovePdf}
                 uploadingPdf={uploadingPdf}
                 pdfError={pdfError}
+                uploadedVideoFilename={uploadedVideoFilename}
+                onUploadVideo={handleUploadVideo}
+                onRemoveVideo={handleRemoveVideo}
+                uploadingVideo={uploadingVideo}
+                videoError={videoError}
               />
             )}
             {step === 3 && (
@@ -667,21 +686,29 @@ export function ProgramBuilder({
               />
             )}
             {step === 4 && (
-              <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} templates={templates} loadingTemplates={loadingTemplates} templateId={templateId} onTemplateIdChange={setTemplateId} day={day} onDayChange={setDay} level={level} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)} />
+              <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)} />
             )}
             {step === 5 && (
-              <Step4Review
-                level={level}
-                title={title}
-                avatarPrompt={avatarPrompt}
-                voicePromptMode={voicePromptMode}
-                voicePrompt={voicePrompt}
-                openingLine={openingLine}
-                warmUpQuestions={warmUpQuestions}
-                vocabulary={vocabulary}
-                exercises={exercises}
-                schedule={templateId && day ? `${templates.find(item => item.id === templateId)?.name ?? ""} · ${t("builder.dayOption", { day })}` : null}
-              />
+              <div className="mx-auto max-w-[720px]">
+                <Step4Review
+                  level={level}
+                  title={title}
+                  avatarPrompt={avatarPrompt}
+                  voicePromptMode={voicePromptMode}
+                  voicePrompt={voicePrompt}
+                  openingLine={openingLine}
+                  warmUpQuestions={warmUpQuestions}
+                  vocabulary={vocabulary}
+                  exercises={exercises}
+                  schedule={null}
+                />
+              </div>
+            )}
+            {step === 6 && (
+              <div className="mx-auto max-w-[720px]">
+                <div className="mb-5 rounded-2xl border border-brand-blue/20 bg-brand-primary-pale p-4"><h3 className="text-lg font-bold text-ink">Choose where students will learn this lesson</h3><p className="mt-1 text-sm text-muted">Select a Program, its learning stage, then publish when it is ready. This is separate from writing the lesson so nothing is assigned by accident.</p></div>
+                {topicId && !hideProgramAssignments ? <TopicProgramAssignments topicId={topicId} /> : <p className="rounded-2xl border border-dashed border-line bg-card p-5 text-sm text-muted">This lesson will be placed from the Batch curriculum after you finish.</p>}
+              </div>
             )}
           </div>
 
@@ -717,12 +744,16 @@ export function ProgramBuilder({
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
             ) : step === 4 ? (
-              <button type="button" disabled={saving || loadingTemplates} onClick={handleStep4Continue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+              <button type="button" disabled={saving} onClick={handleStep4Continue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
+            ) : step === 5 ? (
+              <button type="button" disabled={saving} onClick={() => setStep(6)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+                {t("builder.continueBtn")}
+              </button>
             ) : (
-              <button type="button" onClick={onClose} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-[#10ab91] px-4 py-2.5 text-sm font-bold text-white">
-                {t("builder.done")}
+              <button type="button" disabled={saving} onClick={() => void handleDone()} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-[#10ab91] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+                {saving ? t("builder.saving") : t("builder.done")}
               </button>
             )}
           </footer>

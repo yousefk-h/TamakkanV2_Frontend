@@ -123,6 +123,9 @@ export async function GET(request: Request, { params }: RouteParams): Promise<Re
 export async function POST(request: Request, { params }: RouteParams): Promise<Response> {
   return proxy(request, (await params).path);
 }
+export async function PUT(request: Request, { params }: RouteParams): Promise<Response> {
+  return proxy(request, (await params).path);
+}
 export async function PATCH(request: Request, { params }: RouteParams): Promise<Response> {
   return proxy(request, (await params).path);
 }

@@ -14,16 +14,14 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
-import { ApiError, calendarTemplatesApi } from "@/lib/api/client";
+import { ApiError, calendarTemplatesApi, programsApi } from "@/lib/api/client";
 import { useCalendarTemplate } from "@/lib/hooks/useCalendarTemplates";
 import { daysForSave, staleTopicIds } from "@/lib/calendarTemplates/days";
 import { useTopicsContext } from "@/lib/topics/TopicsContext";
 import { LEVEL_LABEL, LEVEL_ORDER } from "@/lib/topics/helpers";
-import type { Level, TemplateKind, TopicListItem } from "@/lib/api/types";
+import type { Level, ProgramTopicPublic, TemplateKind, TopicListItem } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
-const CHALLENGE_TOTAL_DAYS = 30;
-const END_OF_WEEK_DAYS = [5, 12, 19, 26];
 const POOL_DROP_ID = "pool";
 
 function topicLabel(topic: TopicListItem, kind: TemplateKind): string {
@@ -295,6 +293,8 @@ export function TemplateBuilder({
   const { topics, topicsByLevel, loading: topicsLoading, refetch: refetchTopics } = useTopicsContext();
 
   const [name, setName] = useState("");
+  const [durationDays, setDurationDays] = useState(30);
+  const [restDays, setRestDays] = useState<number[]>([]);
   const [level, setLevel] = useState<Level | null>(initialLevel);
   // One day can hold more than one course - each entry is that day's list of
   // topic ids, in the order they were added.
@@ -308,6 +308,7 @@ export function TemplateBuilder({
   const [poolQuery, setPoolQuery] = useState("");
   const [selectedPoolTopicId, setSelectedPoolTopicId] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [programTopics, setProgramTopics] = useState<{ programId: string; items: ProgramTopicPublic[] } | null>(null);
   const kind = initialKind;
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -322,6 +323,8 @@ export function TemplateBuilder({
     if (!template) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(template.name);
+    setDurationDays(template.duration_days);
+    setRestDays(template.rest_days);
     setLevel(template.level);
     const map: Record<number, string[]> = {};
     const minutesMap: Record<number, Record<string, number>> = {};
@@ -333,7 +336,21 @@ export function TemplateBuilder({
     setCustomMinutesMap(minutesMap);
   }, [template]);
 
-  const availableTopics = kind === "standard" ? (level ? (topicsByLevel[level] ?? []) : []) : (topics ?? []);
+  useEffect(() => {
+    if (!template?.program_id) return;
+    let active = true;
+    programsApi.listTopics(template.program_id)
+      .then(items => { if (active) setProgramTopics({ programId: template.program_id!, items }); })
+      .catch(() => { if (active) setProgramTopics({ programId: template.program_id!, items: [] }); });
+    return () => { active = false; };
+  }, [template?.program_id]);
+
+  const programTopicIds = template?.program_id
+    ? new Set((programTopics?.programId === template.program_id ? programTopics.items : []).filter(item => item.status === "published" && (!template.program_level_id || item.program_level_id === template.program_level_id)).map(item => item.topic_id))
+    : null;
+  const availableTopics = programTopicIds
+    ? (topics ?? []).filter(topic => programTopicIds.has(topic.id))
+    : kind === "standard" ? (level ? (topicsByLevel[level] ?? []) : []) : (topics ?? []);
   const canSave = name.trim().length > 0 && (kind === "custom" || level !== null) && !topicsLoading;
   // Every topic already scheduled on any day - the calendar is a linear
   // curriculum, so a topic scheduled once shouldn't show up again in the pool.
@@ -366,6 +383,12 @@ export function TemplateBuilder({
       if (existing.includes(topicId)) return prev;
       return { ...prev, [day]: [...existing, topicId] };
     });
+  };
+
+  const toggleRestDay = (day: number) => {
+    setRestDays(prev => prev.includes(day) ? prev.filter(value => value !== day) : [...prev, day].sort((a, b) => a - b));
+    setDayMap(prev => { const next = { ...prev }; delete next[day]; return next; });
+    setCustomMinutesMap(prev => { const next = { ...prev }; delete next[day]; return next; });
   };
 
   const removeDayTopic = (day: number, topicId: string) => {
@@ -435,9 +458,9 @@ export function TemplateBuilder({
       // Only topics that exist for this template's level/context are sent; anything stale was announced above the save button.
       const days = daysForSave(dayMap, customMinutesMap, new Set(topicById.keys()));
       if (!templateId) {
-        await calendarTemplatesApi.create({ name: name.trim(), kind, level: kind === "standard" ? level : undefined, days });
+        await calendarTemplatesApi.create({ name: name.trim(), kind, level: kind === "standard" ? level : undefined, duration_days: durationDays, rest_days: restDays, days });
       } else {
-        await calendarTemplatesApi.update(templateId, { name: name.trim(), days });
+        await calendarTemplatesApi.update(templateId, { name: name.trim(), duration_days: durationDays, rest_days: restDays, days });
       }
       onSaved();
       onClose();
@@ -476,6 +499,16 @@ export function TemplateBuilder({
           className="rounded-[10px] border border-line px-3 py-2.5 text-sm text-ink outline-brand-blue"
         />
       </label>
+
+      <div className="mt-4 rounded-xl border border-line bg-bg p-4">
+        <label className="grid max-w-xs gap-1.5 text-sm font-bold text-ink">
+          Program length (days)
+          <input type="number" min={1} max={90} value={durationDays}
+            onChange={e => { const next = Math.max(1, Math.min(90, Number(e.target.value) || 1)); setDurationDays(next); setRestDays(days => days.filter(day => day <= next)); }}
+            className="min-h-11 rounded-[10px] border border-line bg-card px-3 py-2 text-ink outline-brand-blue" />
+        </label>
+        <p className="mb-0 mt-2 text-xs text-muted">30 days is only the default. Choose any journey from 1 to 90 days, then mark rest days directly below.</p>
+      </div>
 
       {kind === "standard" && (
         <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
@@ -521,30 +554,34 @@ export function TemplateBuilder({
             />
 
             <div className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] items-start gap-3">
-              {Array.from({ length: CHALLENGE_TOTAL_DAYS }, (_, i) => i + 1).map(day => {
-                const isEndOfWeek = END_OF_WEEK_DAYS.includes(day);
+              {Array.from({ length: durationDays }, (_, i) => i + 1).map(day => {
+                const isEndOfWeek = restDays.includes(day);
                 const scheduledIds = dayMap[day] ?? [];
                 const scheduledTopics = scheduledIds
                   .map(id => topicById.get(id))
                   .filter((topic): topic is NonNullable<typeof topic> => !!topic);
                 return (
-                  <DayCell
-                    key={day}
-                    day={day}
-                    isEndOfWeek={isEndOfWeek}
-                    scheduledTopics={scheduledTopics}
-                    pickHintActive={selectedPoolTopicId !== null}
-                    customMinutesForDay={customMinutesMap[day] ?? {}}
-                    kind={kind}
-                    removeDayTopic={removeDayTopic}
-                    setCustomMinutes={setCustomMinutes}
-                    onCellClick={() => {
-                      if (!selectedPoolTopicId) return;
-                      addDayTopic(day, selectedPoolTopicId);
-                      setSelectedPoolTopicId(null);
-                    }}
-                    t={t}
-                  />
+                  <div key={day} className="grid content-start gap-1">
+                    <DayCell
+                      day={day}
+                      isEndOfWeek={isEndOfWeek}
+                      scheduledTopics={scheduledTopics}
+                      pickHintActive={selectedPoolTopicId !== null}
+                      customMinutesForDay={customMinutesMap[day] ?? {}}
+                      kind={kind}
+                      removeDayTopic={removeDayTopic}
+                      setCustomMinutes={setCustomMinutes}
+                      onCellClick={() => {
+                        if (!selectedPoolTopicId) return;
+                        addDayTopic(day, selectedPoolTopicId);
+                        setSelectedPoolTopicId(null);
+                      }}
+                      t={t}
+                    />
+                    <button type="button" onClick={() => toggleRestDay(day)} className={`min-h-9 rounded-lg px-2 text-xs font-bold ${isEndOfWeek ? "bg-brand-primary-pale text-brand-blue" : "border border-line text-muted"}`}>
+                      {isEndOfWeek ? "Use as lesson day" : "Mark as rest day"}
+                    </button>
+                  </div>
                 );
               })}
             </div>

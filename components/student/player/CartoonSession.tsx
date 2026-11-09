@@ -21,12 +21,14 @@ import { VoiceCallView } from "./VoiceCallView";
  * call screen itself are both driven from the same `useVoicePractice` snapshot used by `VoiceSession`. */
 export function CartoonSession({
   topicId,
+  enrollmentId,
   watched,
   onActiveChange,
   handoffStart,
   onHandoffConsumed,
 }: {
   topicId: string;
+  enrollmentId?: string;
   watched: boolean;
   onActiveChange?: (active: boolean) => void;
   // Stage 3: Avatar -> Cartoon handoff. When set, this is a session the backend's `POST /sessions/{id}/handoff`
@@ -42,7 +44,7 @@ export function CartoonSession({
   // Same gate as VoiceSession/MariamSession: POST /sessions/start is student-only.
   const isStudent = authState.status === "authenticated" && authState.user.role === "student";
   const messages = useMemo(() => ({ startError: t("voiceSession.startError"), connectionFailed: t("voiceSession.connectionFailed") }), [t]);
-  const { phase, error, endCause, secondsLeft, snapshot, start, startFromHandoff, end, audioContainerRef, room } = useVoicePractice(topicId, messages);
+  const { phase, error, endCause, secondsLeft, snapshot, start, startFromHandoff, end, audioContainerRef, room } = useVoicePractice(topicId, messages, enrollmentId);
   const [onlyVoice, setOnlyVoice] = useState(false);
 
   // Consume a handoff-provided session exactly once, right on mount - never on a later re-render (e.g. `topicId`

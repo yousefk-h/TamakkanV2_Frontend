@@ -15,10 +15,12 @@ import { VoiceCallView } from "./VoiceCallView";
  * This component owns the session (`useVoicePractice`); everything visual is `VoiceCallView`. */
 export function VoiceSession({
   topicId,
+  enrollmentId,
   watched,
   onActiveChange,
 }: {
   topicId: string;
+  enrollmentId?: string;
   watched: boolean;
   onActiveChange?: (active: boolean) => void;
 }) {
@@ -27,7 +29,7 @@ export function VoiceSession({
   // Same gate as MariamSession: POST /sessions/start is student-only.
   const isStudent = authState.status === "authenticated" && authState.user.role === "student";
   const messages = useMemo(() => ({ startError: t("voiceSession.startError"), connectionFailed: t("voiceSession.connectionFailed") }), [t]);
-  const { phase, error, endCause, secondsLeft, snapshot, start, end, audioContainerRef, room } = useVoicePractice(topicId, messages);
+  const { phase, error, endCause, secondsLeft, snapshot, start, end, audioContainerRef, room } = useVoicePractice(topicId, messages, enrollmentId);
 
   const active = phase === "starting" || phase === "live" || phase === "ending";
   useEffect(() => {

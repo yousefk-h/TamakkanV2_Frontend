@@ -46,6 +46,11 @@ export function Step2VideoTranscript({
   onRemovePdf,
   uploadingPdf,
   pdfError,
+  uploadedVideoFilename,
+  onUploadVideo,
+  onRemoveVideo,
+  uploadingVideo,
+  videoError,
 }: {
   youtubeUrl: string;
   onYoutubeUrlChange: (v: string) => void;
@@ -74,10 +79,15 @@ export function Step2VideoTranscript({
   onRemovePdf: () => void;
   uploadingPdf: boolean;
   pdfError: string | null;
+  uploadedVideoFilename: string | null;
+  onUploadVideo: (file: File) => void;
+  onRemoveVideo: () => void;
+  uploadingVideo: boolean;
+  videoError: string | null;
 }) {
   const { t } = useI18n();
   const isApproved = transcriptState === "approved_for_ai";
-  const hasSource = Boolean(youtubeUrl) || Boolean(pdfFilename);
+  const hasSource = Boolean(youtubeUrl) || Boolean(pdfFilename) || Boolean(uploadedVideoFilename);
   return (
     <section className="mx-auto max-w-[720px]">
       <div className="mb-6">
@@ -123,9 +133,46 @@ export function Step2VideoTranscript({
         </div>
       </div>
 
-      <div className="grid gap-1.5">
+      <div className="mb-5 rounded-2xl border border-brand-primary-light bg-brand-primary-pale p-4">
+        <b className="text-sm text-ink">How this step works</b>
+        <ol className="mb-0 mt-2 grid gap-1 pl-5 text-sm text-muted sm:grid-cols-3 sm:pl-0">
+          <li><b className="text-brand-blue">1.</b> Add one or more sources</li>
+          <li><b className="text-brand-blue">2.</b> Extract and review the text</li>
+          <li><b className="text-brand-blue">3.</b> Approve it for the avatar and exercises</li>
+        </ol>
+      </div>
+
+      <div className="grid gap-4 rounded-2xl border border-line bg-bg p-4 sm:grid-cols-2">
+        <div className="grid content-start gap-2 rounded-xl border border-line bg-card p-3.5">
+          <b className="text-sm text-ink">Upload a lesson video</b>
+          <p className="m-0 text-xs leading-relaxed text-muted">Students can watch it in the lesson. We first use embedded captions, then local speech recognition if needed.</p>
+          <label className={`relative mt-1 inline-flex min-h-11 w-fit items-center rounded-[9px] bg-brand-blue px-3.5 py-2 text-sm font-bold text-white ${isApproved ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
+            {uploadingVideo ? "Uploading…" : uploadedVideoFilename ? "Replace video" : "Choose video"}
+            <input type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" disabled={isApproved || uploadingVideo}
+              onChange={e => { const file = e.target.files?.[0]; if (file) onUploadVideo(file); e.target.value = ""; }}
+              className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed" />
+          </label>
+          {uploadedVideoFilename && <div className="flex min-w-0 items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate" title={uploadedVideoFilename}>🎬 {uploadedVideoFilename}</span><button type="button" onClick={onRemoveVideo} disabled={isApproved || uploadingVideo} className="text-xs font-bold text-brand-coral disabled:opacity-40">Remove</button></div>}
+          {videoError && <p role="alert" className="m-0 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">{videoError}</p>}
+        </div>
+
+        <div className="grid content-start gap-2 rounded-xl border border-line bg-card p-3.5">
+          <b className="text-sm text-ink">Upload supporting PDF</b>
+          <p className="m-0 text-xs leading-relaxed text-muted">Add notes, a workbook, or slides. Its text will be kept as a separate named source.</p>
+          <label className={`relative mt-1 inline-flex min-h-11 w-fit items-center rounded-[9px] border border-line bg-card px-3.5 py-2 text-sm font-bold text-ink hover:bg-bg ${isApproved ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
+            {uploadingPdf ? t("builder.uploading") : pdfFilename ? t("builder.replacePdf") : t("builder.uploadPdf")}
+            <input type="file" accept="application/pdf" disabled={isApproved || uploadingPdf}
+              onChange={e => { const file = e.target.files?.[0]; if (file) onUploadPdf(file); e.target.value = ""; }}
+              className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed" />
+          </label>
+          {pdfFilename && <div className="flex min-w-0 items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate" title={pdfFilename}>📄 {pdfFilename}</span><button type="button" onClick={onRemovePdf} disabled={isApproved || uploadingPdf} className="text-xs font-bold text-brand-coral disabled:opacity-40">{t("builder.removePdf")}</button></div>}
+          {pdfError && <p role="alert" className="m-0 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">{pdfError}</p>}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-1.5 rounded-xl border border-line bg-card p-3.5">
         <label htmlFor="youtubeUrl" className="text-sm font-bold text-ink">
-          {t("builder.youtubeLink")}
+          Or add a YouTube link
         </label>
         <p className="m-0 text-xs text-muted">{t("builder.videoOptionalHint")}</p>
         <div className={`flex flex-col overflow-hidden rounded-xl border border-line bg-card sm:flex-row sm:items-center ${isApproved ? "opacity-60" : ""}`}>
@@ -141,7 +188,7 @@ export function Step2VideoTranscript({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-1.5">
+      <div className="hidden mt-4 grid gap-1.5">
         <span className="text-sm font-bold text-ink">{t("builder.pdfSource")}</span>
         <div className="flex flex-wrap items-center gap-3">
           <label className={`relative inline-flex min-h-11 w-fit items-center rounded-[9px] border border-line bg-card px-3.5 py-2 text-sm font-bold text-ink hover:bg-bg focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand-blue ${isApproved ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
@@ -197,7 +244,7 @@ export function Step2VideoTranscript({
 
       {transcriptState === "pending_review" && (
         <div className="mt-5 grid gap-4 border-t border-line pt-5">
-          {transcriptSource === "ai_generated" && (
+          {(transcriptSource === "ai_generated" || transcriptSource === "local_asr" || transcriptSource === "mixed") && (
             <p role="alert" className="m-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {t("builder.aiGeneratedTranscriptNotice")}
             </p>
@@ -296,7 +343,7 @@ export function Step2VideoTranscript({
               <p className="m-0 mt-0.5 text-xs text-[#4f877f]">{t("builder.studentsWillSee")}</p>
             </div>
           </div>
-          {transcriptSource === "ai_generated" && (
+          {(transcriptSource === "ai_generated" || transcriptSource === "local_asr" || transcriptSource === "mixed") && (
             <p role="alert" className="m-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {t("builder.aiGeneratedTranscriptNotice")}
             </p>
