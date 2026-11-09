@@ -127,6 +127,9 @@ export default function CohortsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const [groupSearch, setGroupSearch] = useState("");
+  const [expandedPrograms, setExpandedPrograms] = useState<Record<string, boolean>>({});
+
   const load = useCallback(async () => {
     const [cohortItems, programItems] = await Promise.all([cohortsApi.list(), programsApi.list()]);
     setCohorts(cohortItems);
@@ -148,6 +151,26 @@ export default function CohortsPage() {
   if (state.status !== "authenticated") return null;
 
   const selectedProgram = programs.find(p => p.id === programId);
+
+  // Program -> Cohorts hierarchy: a teacher's (or admin's) flat Cohort list
+  // grouped by the Program it belongs to, so "which classes am I actually
+  // teaching, in which Program" reads as a few clear sections instead of one
+  // long undifferentiated list. Reuses the existing Cohort/Program API
+  // responses as-is - no new backend grouping endpoint needed.
+  const needle = groupSearch.trim().toLowerCase();
+  const visibleCohorts = needle
+    ? cohorts.filter(cohort => {
+        const program = programs.find(p => p.id === cohort.program_id);
+        return cohort.name.toLowerCase().includes(needle) || (program?.name.toLowerCase().includes(needle) ?? false);
+      })
+    : cohorts;
+  const groupsById = new Map<string, { key: string; program: ProgramPublic | undefined; cohorts: CohortPublic[] }>();
+  for (const cohort of visibleCohorts) {
+    const key = cohort.program_id;
+    if (!groupsById.has(key)) groupsById.set(key, { key, program: programs.find(p => p.id === key), cohorts: [] });
+    groupsById.get(key)!.cohorts.push(cohort);
+  }
+  const programGroups = Array.from(groupsById.values()).sort((a, b) => (a.program?.name ?? a.key).localeCompare(b.program?.name ?? b.key));
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setSaving(true); setError("");
@@ -213,28 +236,50 @@ export default function CohortsPage() {
         </button>
       </form>}
 
-      <section className="grid content-start gap-3">
+      <section className="grid content-start gap-5">
+        {cohorts.length > 0 && <input value={groupSearch} onChange={event => setGroupSearch(event.target.value)}
+          placeholder={t("common.searchPlaceholder")} className="min-h-11 rounded-xl border border-line bg-card px-3 text-sm" />}
         {cohorts.length === 0 && <p className="rounded-2xl border border-dashed border-line bg-card p-6 text-sm text-muted">{t("cohorts.empty")}</p>}
-        {cohorts.map(cohort => {
-          const program = programs.find(p => p.id === cohort.program_id);
-          return <article key={cohort.id} className="rounded-2xl border border-line bg-card p-5 shadow-card">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-brand-blue">{program?.name ?? cohort.program_id}</p>
-                <h2 className="mt-1 text-lg font-bold">{cohort.name}</h2>
-                <p className="text-xs text-muted">{t("cohorts.leadTeacherLabel")}: {teacherName(teachers, cohort.lead_teacher_id, state.user)}</p>
-                <p className="text-xs text-muted">{t("cohorts.studentCount", { count: String(cohort.student_count) })}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <Link href={`/admin/cohorts/${cohort.id}`} className="min-h-10 text-sm font-bold text-brand-blue">{t("cohorts.openWorkspace")}</Link>
-                {isAdmin && <button onClick={async () => { await cohortsApi.archive(cohort.id); await load(); }} className="min-h-10 text-sm font-bold text-brand-coral">{t("cohorts.archive")}</button>}
-              </div>
+        {programGroups.map(group => {
+          const isOpen = expandedPrograms[group.program?.id ?? group.key] ?? true;
+          const totalStudents = group.cohorts.reduce((sum, cohort) => sum + cohort.student_count, 0);
+          const allStages = Array.from(new Set(group.cohorts.flatMap(cohort => cohort.program_level_ids)));
+          return <div key={group.key} className="rounded-2xl border border-line bg-bg">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <button type="button" onClick={() => setExpandedPrograms(current => ({ ...current, [group.program?.id ?? group.key]: !isOpen }))}
+                className="flex min-w-0 flex-1 items-center gap-2 text-start">
+                <span className="text-lg">{isOpen ? "▾" : "▸"}</span>
+                <span className="min-w-0">
+                  <h2 className="truncate text-lg font-bold text-ink">{group.program?.name ?? group.key}</h2>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {t("cohorts.programGroupCohortCount", { count: String(group.cohorts.length) })}
+                    {" · "}{t("cohorts.programGroupStudentCount", { count: String(totalStudents) })}
+                    {allStages.length > 0 && ` · ${t("cohorts.programGroupStages")}: ${allStages.map(id => stageName(group.program, id)).join(", ")}`}
+                  </p>
+                </span>
+              </button>
+              {group.program && <Link href={`/admin/programs/${group.program.id}`} className="shrink-0 text-sm font-bold text-brand-blue">{t("cohorts.openProgramWorkspace")}</Link>}
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {cohort.program_level_ids.map(id => <span key={id} className="rounded-full bg-brand-primary-pale px-3 py-1 text-xs font-bold text-brand-blue">{stageName(program, id)}</span>)}
-            </div>
-            <CohortRoster cohort={cohort} program={program} isAdmin={isAdmin} students={students} />
-          </article>;
+            {isOpen && <div className="grid gap-3 border-t border-line p-4 pt-4">
+              {group.cohorts.map(cohort => <article key={cohort.id} className="rounded-2xl border border-line bg-card p-5 shadow-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-bold">{cohort.name}</h3>
+                    <p className="text-xs text-muted">{t("cohorts.leadTeacherLabel")}: {teacherName(teachers, cohort.lead_teacher_id, state.user)}</p>
+                    <p className="text-xs text-muted">{t("cohorts.studentCount", { count: String(cohort.student_count) })}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Link href={`/admin/cohorts/${cohort.id}`} className="min-h-10 text-sm font-bold text-brand-blue">{t("cohorts.openWorkspace")}</Link>
+                    {isAdmin && <button onClick={async () => { await cohortsApi.archive(cohort.id); await load(); }} className="min-h-10 text-sm font-bold text-brand-coral">{t("cohorts.archive")}</button>}
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {cohort.program_level_ids.map(id => <span key={id} className="rounded-full bg-brand-primary-pale px-3 py-1 text-xs font-bold text-brand-blue">{stageName(group.program, id)}</span>)}
+                </div>
+                <CohortRoster cohort={cohort} program={group.program} isAdmin={isAdmin} students={students} />
+              </article>)}
+            </div>}
+          </div>;
         })}
       </section>
     </div>

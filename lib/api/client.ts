@@ -93,6 +93,16 @@ import type {
   UnitCreateRequest,
   UnitPublic,
   UnitUpdateRequest,
+  TaughtStudentPage,
+  StudentLearningJourney,
+  ExerciseAttemptHistoryItem,
+  AnnouncementPage,
+  AnnouncementScope,
+  AnnouncementSummary,
+  ConversationPage,
+  MessagePage,
+  MessagePublic,
+  RecipientPreview,
   UserPage,
   UserPublic,
 } from "./types";
@@ -240,6 +250,13 @@ export const usersApi = {
    * student in the center instead - same request either way, the backend decides by role. Filter client-side
    * by `plan === null` for the "awaiting class assignment" queue. */
   listMyStudents: () => request<UserPublic[]>(`${BACKEND_PREFIX}/users`),
+  /** The real "My Students" population: every Student actively enrolled in
+   * a Cohort this caller teaches (stage-scoped, deduplicated across
+   * Cohorts/Programs) - distinct from `listMyStudents` above, which lists
+   * students this caller *created*. Center Admin sees every enrolled
+   * student in the center. */
+  myStudents: (params?: { search?: string; program_id?: string; cohort_id?: string; program_level_id?: string; page?: number; limit?: number }) =>
+    request<TaughtStudentPage>(`${BACKEND_PREFIX}/users/my-students`, { params }),
   resetStudentPassword: (studentId: string, body: ResetPasswordRequest) =>
     request<UserPublic>(`${BACKEND_PREFIX}/users/${studentId}/reset-password`, { method: "POST", json: body }),
   /** Just the email - a duplicate (anyone else's) is a 409. */
@@ -261,6 +278,18 @@ export const usersApi = {
   /** Server-side search/status/paging over the same roster as `listMyStudents` -
    * the Users dashboard's Students tab. */
   listStudentsPage: (params: ListStudentsParams) => request<UserPage>(`${BACKEND_PREFIX}/users`, { params }),
+  /** The complete student activity view (Teacher Workspace Increment 2) -
+   * every enrollment's lesson/exercise progress, AI practice history, and
+   * assigned homework, assembled from persisted records only. 403 if the
+   * caller isn't authorized to see this student at all. */
+  getLearningJourney: (studentId: string) => request<StudentLearningJourney>(`${BACKEND_PREFIX}/users/${studentId}/learning-journey`),
+  /** Every attempt a student submitted for one lesson, newest first -
+   * including superseded ones - the drill-down from a learning-journey
+   * exercise summary. */
+  getExerciseHistory: (studentId: string, topicId: string, enrollmentId?: string) =>
+    request<ExerciseAttemptHistoryItem[]>(`${BACKEND_PREFIX}/users/${studentId}/exercise-history`, {
+      params: { topic_id: topicId, enrollment_id: enrollmentId },
+    }),
   /** Total/active counts for the caller's own students - the Users
    * dashboard's KPI cards. */
   getStudentCounts: () => request<StudentCounts>(`${BACKEND_PREFIX}/users/counts`),
@@ -588,6 +617,35 @@ export const homeworkApi = {
   listForStaff: () => request<HomeworkPublic[]>(`${BACKEND_PREFIX}/homework`),
   listMine: () => request<HomeworkPublic[]>(`${BACKEND_PREFIX}/homework/me`),
   cancel: (homeworkId: string) => request<void>(`${BACKEND_PREFIX}/homework/${homeworkId}`, { method: "DELETE" }),
+};
+
+// --- Messaging (Teacher Workspace Increment 3) -------------------------------
+
+export const messagesApi = {
+  /** A caller's own inbox - works for a Student, Teacher, or Admin alike. */
+  listConversations: (params?: { page?: number; limit?: number }) =>
+    request<ConversationPage>(`${BACKEND_PREFIX}/messages/conversations`, { params }),
+  getConversation: (conversationId: string, params?: { page?: number; limit?: number }) =>
+    request<MessagePage>(`${BACKEND_PREFIX}/messages/conversations/${conversationId}`, { params }),
+  reply: (conversationId: string, body: string) =>
+    request<MessagePublic>(`${BACKEND_PREFIX}/messages/conversations/${conversationId}/reply`, { method: "POST", json: { body } }),
+  /** Teacher/Admin only - starts (or reuses) a 1:1 conversation with one
+   * student they're actually authorized to reach. */
+  startConversation: (studentId: string, body: string) =>
+    request<MessagePublic>(`${BACKEND_PREFIX}/messages/new`, { method: "POST", json: { student_id: studentId, body } }),
+  /** How many distinct students a bulk announcement with this scope would
+   * reach - shown before committing to send. */
+  previewRecipients: (scope: AnnouncementScope, scopeId?: string) =>
+    request<RecipientPreview>(`${BACKEND_PREFIX}/messages/announcements/recipient-count`, { params: { scope, scope_id: scopeId } }),
+  /** `clientToken` should be a fresh random value per compose action (e.g.
+   * `crypto.randomUUID()`) - resending with the same token never delivers
+   * twice, it just returns the original result. */
+  sendAnnouncement: (scope: AnnouncementScope, body: string, clientToken: string, scopeId?: string) =>
+    request<AnnouncementSummary>(`${BACKEND_PREFIX}/messages/announcements`, {
+      method: "POST", json: { scope, scope_id: scopeId, body, client_token: clientToken },
+    }),
+  listAnnouncements: (params?: { page?: number; limit?: number }) =>
+    request<AnnouncementPage>(`${BACKEND_PREFIX}/messages/announcements`, { params }),
 };
 
 // --- Sessions (real "Discuss with Mariam") ------------------------------------

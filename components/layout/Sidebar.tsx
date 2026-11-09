@@ -21,6 +21,7 @@ const STUDENT_NAV: NavItem[] = [
   { key: "submissions", href: "/student/submissions", icon: "video" },
   { key: "classes", href: "/student/classes", icon: "classes" },
   { key: "progress", href: "/student/progress", icon: "progress" },
+  { key: "messages", href: "/student/messages", icon: "report" },
 ];
 
 /** Center Admin: a grouped, role-aware structure - "ONE LMS", not a flat
@@ -42,6 +43,7 @@ const ADMIN_NAV_GROUPS: NavGroup[] = [
     title: "sidebar.group.people", items: [
       { key: "people", href: "/admin/students", icon: "people" },
       { key: "users", href: "/admin/users", icon: "userAccount" },
+      { key: "messages", href: "/admin/messages", icon: "report" },
     ],
   },
   {
@@ -72,10 +74,12 @@ const ADMIN_NAV_GROUPS: NavGroup[] = [
 const TEACHER_NAV: NavItem[] = [
   { key: "dashboard", href: "/admin", icon: "home" },
   { key: "myClasses", href: "/admin/cohorts", icon: "classes" },
+  { key: "myStudents", href: "/admin/my-students", icon: "people" },
   { key: "myTopics", href: "/admin/topics", icon: "program" },
   { key: "homeworkReviews", href: "/admin/homework", icon: "report" },
   { key: "studentProgress", href: "/admin/analytics", icon: "progress" },
   { key: "liveClasses", href: "/admin/classes", icon: "video" },
+  { key: "messages", href: "/admin/messages", icon: "report" },
 ];
 
 function isActive(pathname: string, href: string) {

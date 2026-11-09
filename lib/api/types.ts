@@ -183,6 +183,164 @@ export interface EnrollmentPublic extends BaseSchema {
   student_email: string | null;
 }
 
+/** One row of GET /users/my-students - a real Student deduplicated across
+ * every Cohort the caller teaches, with only the enrollments the caller is
+ * actually authorized to see. */
+export interface TaughtStudent extends BaseSchema {
+  full_name: string;
+  email: string;
+  is_active: boolean;
+  enrollments: EnrollmentPublic[];
+}
+
+export interface TaughtStudentPage {
+  items: TaughtStudent[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/** The complete student activity view (Teacher Workspace Increment 2) -
+ * assembled entirely from persisted records, never from an AI call. */
+export interface LessonExerciseSummary {
+  exercise_index: number;
+  kind: LessonExercise["kind"];
+  prompt: string;
+  attempt_count: number;
+  latest_correct: boolean | null;
+  latest_score: number | null;
+  latest_submitted_at: string | null;
+  latest_reviewed: boolean;
+  best_score: number | null;
+}
+
+export interface LessonProgressSummary {
+  topic_id: string;
+  topic_title: string;
+  status: LessonDayState;
+  exercises: LessonExerciseSummary[];
+  graded_exercise_count: number;
+  correct_exercise_count: number;
+}
+
+export interface EnrollmentJourney {
+  enrollment: EnrollmentPublic;
+  has_schedule: boolean;
+  total_days: number;
+  current_day: number;
+  lessons: LessonProgressSummary[];
+}
+
+export interface AiSessionSummary {
+  id: string;
+  topic_id: string | null;
+  topic_title: string | null;
+  enrollment_id: string | null;
+  mode: string;
+  state: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_minutes: number | null;
+  has_report: boolean;
+}
+
+export interface HomeworkSummary {
+  id: string;
+  title: string;
+  kind: string;
+  due_at: string;
+  topic_id: string | null;
+  /** Always false today - homework submission/completion tracking does not
+   * exist in this data model yet. Shown explicitly so the UI never implies
+   * a status this system has no way to know. */
+  submission_tracking_available: boolean;
+}
+
+export interface StudentLearningJourney {
+  student_id: string;
+  full_name: string;
+  email: string;
+  is_active: boolean;
+  enrollments: EnrollmentJourney[];
+  ai_sessions: AiSessionSummary[];
+  homework: HomeworkSummary[];
+}
+
+// --- Messaging (Teacher Workspace Increment 3) ------------------------------
+
+export type AnnouncementScope = "my_students" | "cohort" | "program" | "center";
+
+export interface MessagePublic extends BaseSchema {
+  conversation_id: string;
+  sender_id: string;
+  sender_role: Role;
+  sender_name: string | null;
+  body: string;
+  read_at: string | null;
+  announcement_id: string | null;
+  is_mine: boolean;
+}
+
+export interface ConversationSummary extends BaseSchema {
+  other_participant_id: string;
+  other_participant_name: string | null;
+  other_participant_role: Role | null;
+  last_message_at: string;
+  last_message_preview: string;
+  unread_count: number;
+}
+
+export interface AnnouncementSummary extends BaseSchema {
+  sender_id: string;
+  sender_role: Role;
+  scope: AnnouncementScope;
+  scope_id: string | null;
+  scope_name: string | null;
+  body: string;
+  recipient_count: number;
+}
+
+export interface ConversationPage {
+  items: ConversationSummary[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface MessagePage {
+  items: MessagePublic[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AnnouncementPage {
+  items: AnnouncementSummary[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface RecipientPreview {
+  recipient_count: number;
+}
+
+export interface ExerciseAttemptHistoryItem {
+  id: string;
+  created_at: string;
+  exercise_index: number;
+  exercise_kind: LessonExercise["kind"];
+  exercise_prompt: string;
+  answer: number | string | number[];
+  answer_display: string;
+  correct: boolean | null;
+  correct_option: number | null;
+  score: number | null;
+  reviewed: boolean;
+  superseded: boolean;
+  feedback: string;
+}
+
 export interface EnrollmentPage {
   items: EnrollmentPublic[];
   total: number;
