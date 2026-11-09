@@ -10,6 +10,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { Avatar, PlanBadge } from "@/components/admin/shared";
 import { AssignPlanModal } from "@/components/admin/AssignPlanModal";
 import { EmailVerificationStatus } from "@/components/admin/EmailVerificationStatus";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { useStudentsContext } from "@/lib/students/StudentsContext";
 import { DEFAULT_ROSTER_FILTERS, filterRoster, hasActiveFilters, rosterFiltersKey, type RosterFilters } from "@/lib/students/rosterFilters";
 import { useStudentAlerts } from "@/lib/hooks/useStudentAlerts";
@@ -82,6 +83,8 @@ export default function AdminStudentsPage() {
     advanced: LEVEL_LABEL.advanced,
   };
   const { students, loading, error, refetch } = useStudentsContext();
+  const { state: authState } = useAuth();
+  const isTeacher = authState.status === "authenticated" && authState.user.role === "teacher";
   const { alerts } = useStudentAlerts();
   const router = useRouter();
   const [filters, setFilters] = useState<RosterFilters>(DEFAULT_ROSTER_FILTERS);
@@ -122,6 +125,13 @@ export default function AdminStudentsPage() {
           </button>
         }
       />
+
+      {isTeacher && !loading && roster.length === 0 && (
+        <section className="mt-4 rounded-2xl border border-brand-blue/30 bg-brand-primary-pale/30 p-4 text-sm">
+          <p className="m-0">{t("adminStudents.teacherRosterIsCreatedOnly")}</p>
+          <Link href="/admin/my-students" className="mt-2 inline-block font-bold text-brand-blue">{t("adminStudents.goToMyStudents")} →</Link>
+        </section>
+      )}
 
       {loading && <p className="mt-4 text-sm text-muted">{t("adminStudents.loading")}</p>}
       {error && !loading && (

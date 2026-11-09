@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { ApiError, cohortsApi, messagesApi, programsApi } from "@/lib/api/client";
-import type { AnnouncementScope, AnnouncementSummary, CohortPublic, ConversationSummary, MessagePublic, ProgramPublic } from "@/lib/api/types";
+import { ApiError, cohortsApi, messagesApi, programsApi, usersApi } from "@/lib/api/client";
+import type { AnnouncementScope, AnnouncementSummary, CohortPublic, ConversationSummary, MessagePublic, ProgramPublic, TaughtStudent } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { formatDate } from "@/lib/format";
 
@@ -29,6 +29,8 @@ export function MessagingWorkspace({ canCompose, canBroadcastCenter }: { canComp
 
   const [showNewMessage, setShowNewMessage] = useState(!!prefillStudentId);
   const [newStudentId, setNewStudentId] = useState(prefillStudentId ?? "");
+  const [studentQuery, setStudentQuery] = useState("");
+  const [studentMatches, setStudentMatches] = useState<TaughtStudent[]>([]);
   const [newBody, setNewBody] = useState("");
 
   const [showAnnouncement, setShowAnnouncement] = useState(false);
@@ -58,7 +60,24 @@ export function MessagingWorkspace({ canCompose, canBroadcastCenter }: { canComp
       setCohorts(cohortItems);
       setPrograms(programItems);
     })();
-  }, [canCompose]);
+    // Resolve the prefilled `?student_id=` (from the My Students "Message"
+    // button) to a real display name instead of showing the raw id.
+    if (prefillStudentId) {
+      usersApi.getStudent(prefillStudentId).then(student => setStudentQuery(`${student.full_name} (${student.email})`)).catch(() => {});
+    }
+  }, [canCompose, prefillStudentId]);
+
+  // Searchable recipient picker for "new message" - server-backed by the
+  // same `my-students` endpoint the My Students page uses, so only
+  // students this caller is actually authorized to reach ever appear.
+  useEffect(() => {
+    if (!canCompose || newStudentId || studentQuery.trim().length < 2) return;
+    let cancelled = false;
+    usersApi.myStudents({ search: studentQuery.trim(), limit: 8 })
+      .then(page => { if (!cancelled) setStudentMatches(page.items); })
+      .catch(() => { if (!cancelled) setStudentMatches([]); });
+    return () => { cancelled = true; };
+  }, [canCompose, newStudentId, studentQuery]);
 
   const openConversation = useCallback(async (id: string) => {
     setSelectedId(id);
@@ -85,7 +104,7 @@ export function MessagingWorkspace({ canCompose, canBroadcastCenter }: { canComp
     setBusy(true); setError("");
     try {
       const message = await messagesApi.startConversation(newStudentId.trim(), newBody.trim());
-      setShowNewMessage(false); setNewBody(""); setNewStudentId("");
+      setShowNewMessage(false); setNewBody(""); setNewStudentId(""); setStudentQuery(""); setStudentMatches([]);
       await loadConversations();
       await openConversation(message.conversation_id);
     } catch (cause) {
@@ -141,11 +160,20 @@ export function MessagingWorkspace({ canCompose, canBroadcastCenter }: { canComp
 
     {showNewMessage && canCompose && <form onSubmit={submitNewMessage} className="mb-4 grid gap-2 rounded-2xl border border-line bg-card p-4">
       <h2 className="text-sm font-bold">{t("messages.newMessage")}</h2>
-      <input value={newStudentId} onChange={event => setNewStudentId(event.target.value)} placeholder={t("messages.studentIdPlaceholder")}
-        className="min-h-11 rounded-xl border border-line bg-bg px-3 text-sm" disabled={!!prefillStudentId} />
+      <div className="relative">
+        <input value={studentQuery} onChange={event => { const value = event.target.value; setStudentQuery(value); setNewStudentId(""); if (value.trim().length < 2) setStudentMatches([]); }}
+          placeholder={t("messages.studentSearchPlaceholder")} autoComplete="off"
+          className="min-h-11 w-full rounded-xl border border-line bg-bg px-3 text-sm" disabled={!!prefillStudentId} />
+        {studentMatches.length > 0 && <ul className="absolute z-10 mt-1 w-full rounded-xl border border-line bg-card shadow-card">
+          {studentMatches.map(match => <li key={match.id}>
+            <button type="button" onClick={() => { setNewStudentId(match.id); setStudentQuery(`${match.full_name} (${match.email})`); setStudentMatches([]); }}
+              className="block w-full px-3 py-2 text-start text-sm hover:bg-bg">{match.full_name} <span className="text-xs text-muted">{match.email}</span></button>
+          </li>)}
+        </ul>}
+      </div>
       <textarea value={newBody} onChange={event => setNewBody(event.target.value)} rows={3} maxLength={5000}
         placeholder={t("messages.bodyPlaceholder")} className="rounded-xl border border-line bg-bg p-3 text-sm" />
-      <button disabled={busy} type="submit" className="min-h-11 w-fit rounded-xl bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-50">{t("messages.send")}</button>
+      <button disabled={busy || !newStudentId} type="submit" className="min-h-11 w-fit rounded-xl bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-50">{t("messages.send")}</button>
     </form>}
 
     {showAnnouncement && canCompose && <form onSubmit={submitAnnouncement} className="mb-4 grid gap-2 rounded-2xl border border-brand-blue/30 bg-brand-primary-pale/30 p-4">

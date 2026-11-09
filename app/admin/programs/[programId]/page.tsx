@@ -28,15 +28,26 @@ export default function ProgramWorkspacePage() {
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
+  const isAdmin = state.status === "authenticated" && state.user.role === "administrator";
+
   const load = useCallback(async () => {
     try {
-      const [programItems, cohortItems, topicItems, teacherPage, profileItems] = await Promise.all([
-        programsApi.list(), cohortsApi.list(), topicsApi.list({ limit: 200 }), teachersApi.listTeachersPage({ page: 1, limit: 100 }), levelProfilesApi.list(),
+      // `GET /teachers` is Administrator-only - calling it unconditionally
+      // inside this Promise.all made the whole load (and therefore this
+      // Program's own data) fail with a 403 for any Teacher opening their
+      // own assigned Program, surfacing as a false "This Program wasn't
+      // found" instead of the real cause.
+      const [programItems, cohortItems, topicItems, profileItems] = await Promise.all([
+        programsApi.list(), cohortsApi.list(), topicsApi.list({ limit: 200 }), levelProfilesApi.list(),
       ]);
-      setPrograms(programItems); setCohorts(cohortItems.filter(c => c.program_id === programId)); setTopics(topicItems); setTeachers(teacherPage.items); setProfiles(profileItems);
+      setPrograms(programItems); setCohorts(cohortItems.filter(c => c.program_id === programId)); setTopics(topicItems); setProfiles(profileItems);
+      if (isAdmin) {
+        const teacherPage = await teachersApi.listTeachersPage({ page: 1, limit: 100 });
+        setTeachers(teacherPage.items);
+      }
     } catch { setLoadFailed(true); }
     finally { setLoaded(true); }
-  }, [programId]);
+  }, [programId, isAdmin]);
 
   // Initial API synchronization; updates happen after requests resolve.
   // eslint-disable-next-line react-hooks/set-state-in-effect

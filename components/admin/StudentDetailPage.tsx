@@ -149,10 +149,15 @@ export function StudentDetailPage({
   student,
   onEditPlan,
   onManageAccount,
+  backHref = "/admin/students",
 }: {
   student: UserPublic;
   onEditPlan: () => void;
   onManageAccount: () => void;
+  /** A Teacher's real entry point is "My Students", not the Admin-only
+   * center-wide roster - defaults to the legacy Admin page unchanged for
+   * any other caller of this component. */
+  backHref?: string;
 }) {
   const { t } = useI18n();
   const { topics, topicsByLevel } = useTopicsContext();
@@ -206,7 +211,7 @@ export function StudentDetailPage({
 
   return (
     <main className="mx-auto max-w-[1510px] px-4 py-7 md:px-7.5">
-      <Link href="/admin/students" className="mb-3.5 inline-block text-sm font-bold text-brand-blue">
+      <Link href={backHref} className="mb-3.5 inline-block text-sm font-bold text-brand-blue">
         ← {t("studentDetail.backToStudents")}
       </Link>
 

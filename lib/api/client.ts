@@ -265,6 +265,12 @@ export const usersApi = {
   /** Soft delete - the account disappears from the roster and can no longer
    * sign in; its past sessions/reports/submissions are untouched. */
   deleteStudent: (studentId: string) => request<void>(`${BACKEND_PREFIX}/users/${studentId}`, { method: "DELETE" }),
+  /** A single student's profile, authorized the same way `myStudents` is -
+   * works for a Cohort-enrolled student even if this caller never
+   * personally created their account. Use this for "open one student's
+   * profile" instead of searching the (narrower, created_by_id-scoped)
+   * `listMyStudents()`/`listStudentsPage()` results client-side. */
+  getStudent: (studentId: string) => request<UserPublic>(`${BACKEND_PREFIX}/users/${studentId}`),
   assignPlan: (studentId: string, body: AssignPlanRequest) =>
     request<UserPublic>(`${BACKEND_PREFIX}/users/${studentId}/assign-plan`, { method: "POST", json: body }),
   raiseSessionLimit: (studentId: string, body: RaiseSessionLimitRequest) =>
