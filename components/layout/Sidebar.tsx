@@ -11,38 +11,78 @@ import { Logo, Wordmark } from "@/components/ui/Logo";
 import { type MessageKey, useI18n } from "@/lib/i18n/LocaleProvider";
 
 type NavItem = { key: string; href: string; icon: IconName };
+type NavGroup = { title: MessageKey | null; items: NavItem[] };
 
 const STUDENT_NAV: NavItem[] = [
   { key: "home", href: "/student", icon: "home" },
+  { key: "enrollments", href: "/student/enrollments", icon: "program" },
   { key: "challenge", href: "/student/challenge", icon: "challenge" },
-  { key: "lessons", href: "/student/lessons", icon: "lessons" },
   { key: "homework", href: "/student/homework", icon: "report" },
   { key: "submissions", href: "/student/submissions", icon: "video" },
   { key: "classes", href: "/student/classes", icon: "classes" },
   { key: "progress", href: "/student/progress", icon: "progress" },
 ];
 
-const ADMIN_NAV: NavItem[] = [
-  { key: "home", href: "/admin", icon: "home" },
-  { key: "people", href: "/admin/students", icon: "people" },
-  { key: "users", href: "/admin/users", icon: "userAccount" },
-  { key: "levels", href: "/admin/levels", icon: "program" },
-  { key: "report", href: "/admin/reports", icon: "report" },
-  { key: "submissions", href: "/admin/submissions", icon: "video" },
-  { key: "exerciseReview", href: "/admin/exercise-review", icon: "report" },
-  { key: "homework", href: "/admin/homework", icon: "report" },
-  { key: "program", href: "/admin/topics", icon: "program" },
-  { key: "calendars", href: "/admin/calendars", icon: "calendar" },
-  { key: "classes", href: "/admin/classes", icon: "classes" },
-  { key: "progress", href: "/admin/analytics", icon: "progress" },
-  { key: "operations", href: "/admin/operations", icon: "settings" },
+/** Center Admin: a grouped, role-aware structure - "ONE LMS", not a flat
+ * wall of unrelated tools. Batches live primarily inside a Program's own
+ * Workspace, and a Batch's Schedule inside ITS Workspace, so neither
+ * "Cohorts" nor "Calendars" gets its own top-level item here anymore - both
+ * routes still exist and are reachable (from the Program/Batch Workspace,
+ * and directly by URL), just not duplicated in the main nav. */
+const ADMIN_NAV_GROUPS: NavGroup[] = [
+  { title: null, items: [{ key: "home", href: "/admin", icon: "home" }] },
+  {
+    title: "sidebar.group.education", items: [
+      { key: "programs", href: "/admin/programs", icon: "lessons" },
+      { key: "program", href: "/admin/topics", icon: "program" },
+      { key: "classes", href: "/admin/classes", icon: "classes" },
+    ],
+  },
+  {
+    title: "sidebar.group.people", items: [
+      { key: "people", href: "/admin/students", icon: "people" },
+      { key: "users", href: "/admin/users", icon: "userAccount" },
+    ],
+  },
+  {
+    title: "sidebar.group.teaching", items: [
+      { key: "homework", href: "/admin/homework", icon: "report" },
+      { key: "submissions", href: "/admin/submissions", icon: "video" },
+      { key: "exerciseReview", href: "/admin/exercise-review", icon: "report" },
+    ],
+  },
+  {
+    title: "sidebar.group.reports", items: [
+      { key: "report", href: "/admin/reports", icon: "report" },
+      { key: "progress", href: "/admin/analytics", icon: "progress" },
+    ],
+  },
+  {
+    title: "sidebar.group.settings", items: [
+      { key: "levels", href: "/admin/levels", icon: "program" },
+      { key: "operations", href: "/admin/operations", icon: "settings" },
+    ],
+  },
+];
+
+/** Teacher: a flat, day-to-day list - "My Classes" is their own assigned
+ * Batches (the same `/admin/cohorts` route Center Admin reaches from inside
+ * a Program, scoped server-side to what this Teacher is actually assigned
+ * to - see `CohortService.list_for_teacher`). */
+const TEACHER_NAV: NavItem[] = [
+  { key: "dashboard", href: "/admin", icon: "home" },
+  { key: "myClasses", href: "/admin/cohorts", icon: "classes" },
+  { key: "myTopics", href: "/admin/topics", icon: "program" },
+  { key: "homeworkReviews", href: "/admin/homework", icon: "report" },
+  { key: "studentProgress", href: "/admin/analytics", icon: "progress" },
+  { key: "liveClasses", href: "/admin/classes", icon: "video" },
 ];
 
 function isActive(pathname: string, href: string) {
   return href === "/student" || href === "/admin" ? pathname === href : pathname.startsWith(href);
 }
 
-export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0, showUsersNav = true, showOperationsNav = false }: {
+export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0, showUsersNav = true, showOperationsNav = false, isTeacher = false }: {
   variant: "student" | "admin"; canSwitchView: boolean; onLogout: () => void; unreviewedCount?: number;
   /** The Center Admin Users page (Students + Teachers across the whole center) is Administrator-only - a
    * Teacher doesn't get this nav entry at all, per PROMPT-047 ("Teacher should NOT see Center Admin
@@ -51,14 +91,27 @@ export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0,
    * guard. */
   showUsersNav?: boolean;
   showOperationsNav?: boolean;
+  /** Switches the "admin" variant to the Teacher's own flat nav (My Classes,
+   * My Topics, ...) instead of the Center Admin's grouped one. */
+  isTeacher?: boolean;
 }) {
   const pathname = usePathname();
   const { t } = useI18n();
   const [moreOpen, setMoreOpen] = useState(false);
-  const adminNav = ADMIN_NAV.filter(item => (showUsersNav || !["users", "levels"].includes(item.key)) && (showOperationsNav || item.key !== "operations"));
-  const nav = variant === "student" ? STUDENT_NAV : adminNav;
-  const label = (key: string) => t(`sidebar.nav.${variant}.${key}` as MessageKey);
-  const moreActive = nav.slice(4).some(item => isActive(pathname, item.href));
+
+  const groups: NavGroup[] = variant === "student"
+    ? [{ title: null, items: STUDENT_NAV }]
+    : isTeacher
+      ? [{ title: null, items: TEACHER_NAV }]
+      : ADMIN_NAV_GROUPS
+          .map(group => ({ ...group, items: group.items.filter(item => (showUsersNav || !["users", "levels", "programs"].includes(item.key)) && (showOperationsNav || item.key !== "operations")) }))
+          .filter(group => group.items.length > 0);
+
+  const flat = groups.flatMap(group => group.items);
+  const roleNamespace = variant === "student" ? "student" : isTeacher ? "teacher" : "admin";
+  const label = (key: string) => t(`sidebar.nav.${roleNamespace}.${key}` as MessageKey);
+  const moreActive = flat.slice(4).some(item => isActive(pathname, item.href));
+
   const renderLink = (item: NavItem, compact = false) => (
     <Link key={item.key} href={item.href} onClick={() => setMoreOpen(false)} aria-label={label(item.key)} aria-current={isActive(pathname, item.href) ? "page" : undefined}
       className={`${compact ? "mobile-nav-link" : "flex min-h-12 items-center gap-3 rounded-xl px-3 py-3 text-sm"} ${isActive(pathname, item.href) ? "bg-white text-brand-navy shadow-sm" : "text-white/85 hover:bg-white/10"}`}>
@@ -67,6 +120,16 @@ export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0,
       {!compact && item.key === "submissions" && unreviewedCount > 0 && <b className="rounded-full bg-white/15 px-2 text-xs">{unreviewedCount}</b>}
     </Link>
   );
+
+  const renderDesktopGroups = () => groups.map((group, index) => (
+    group.title === null
+      ? <nav key={`group-${index}`} aria-label={t("mobile.navigation")} className="grid gap-1">{group.items.map(item => renderLink(item))}</nav>
+      : <details key={group.title} open className="group">
+          <summary className="min-h-9 cursor-pointer list-none px-3 py-2 text-xs font-bold uppercase tracking-wide text-white/50">{t(group.title)}</summary>
+          <nav aria-label={t(group.title)} className="grid gap-1">{group.items.map(item => renderLink(item))}</nav>
+        </details>
+  ));
+
   return <>
     <aside className="desktop-sidebar fixed inset-y-0 start-0 z-20 hidden w-[232px] flex-col overflow-y-auto bg-brand-navy px-4 py-6 lg:flex">
       <div className="mb-7 flex items-center gap-3 px-2 text-white"><Logo className="size-11" /><Wordmark /></div>
@@ -74,18 +137,18 @@ export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0,
         <Link href="/student" className={`rounded-lg p-3 text-center text-sm ${variant === "student" ? "bg-white text-brand-navy" : "text-white"}`}>{t("sidebar.student")}</Link>
         <Link href="/admin" className={`rounded-lg p-3 text-center text-sm ${variant === "admin" ? "bg-white text-brand-navy" : "text-white"}`}>{t("sidebar.admin")}</Link>
       </div>}
-      <nav aria-label={t("mobile.navigation")} className="grid gap-1">{nav.map(item => renderLink(item))}</nav>
+      <div className="grid gap-2">{renderDesktopGroups()}</div>
       <button onClick={onLogout} className="mt-auto flex min-h-12 items-center gap-3 rounded-xl px-3 pt-5 text-sm text-white"><Icon name="logout" />{t("sidebar.logout")}</button>
     </aside>
     <nav aria-label={t("mobile.navigation")} className="mobile-bottom-nav lg:hidden">
-      {nav.slice(0, 4).map(item => renderLink(item, true))}
+      {flat.slice(0, 4).map(item => renderLink(item, true))}
       <button aria-haspopup="dialog" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)} className={`mobile-nav-link ${moreActive || moreOpen ? "bg-white text-brand-navy" : "text-white/85"}`}>
         <Menu className="size-5" aria-hidden="true" /><span className="text-[11px]">{t("mobile.more")}</span>
       </button>
     </nav>
     {moreOpen && <Dialog onClose={() => setMoreOpen(false)} dismissOnBackdropClick ariaLabel={t("mobile.more")} className="mobile-more-dialog rounded-3xl border border-line bg-card p-5 text-ink shadow-2xl backdrop:bg-black/45">
       <div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-bold">{t("mobile.more")}</h2><DialogCloseButton className="grid size-11 place-items-center rounded-xl border border-line" /></div>
-      <nav aria-label={t("mobile.navigation")} className="grid gap-2 rounded-2xl bg-brand-navy p-2">{nav.slice(4).map(item => renderLink(item))}</nav>
+      <nav aria-label={t("mobile.navigation")} className="grid gap-2 rounded-2xl bg-brand-navy p-2">{flat.slice(4).map(item => renderLink(item))}</nav>
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3"><LanguageSwitcher className="min-h-11" />
         {canSwitchView && <Link onClick={() => setMoreOpen(false)} href={variant === "admin" ? "/student" : "/admin"} className="rounded-xl border border-line p-3 text-sm font-bold">{variant === "admin" ? t("topbar.switchToStudent") : t("topbar.switchToAdmin")}</Link>}
       </div>

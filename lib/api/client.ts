@@ -50,6 +50,20 @@ import type {
   PasswordResetConfirmBody,
   PasswordResetRequestBody,
   PracticeMode,
+  ProgramPublic,
+  ProgramTopicPublic,
+  ProgramTopicUpdateRequest,
+  ProgramTopicWriteRequest,
+  ProgramWriteRequest,
+  CohortCreateRequest,
+  CohortPublic,
+  CohortUpdateRequest,
+  EnrollmentPublic,
+  EnrollmentPage,
+  CohortStudentCandidatePage,
+  BulkEnrollmentResult,
+  EnrollmentSchedule,
+  EnrollStudentsRequest,
   RaiseSessionLimitRequest,
   ResetPasswordRequest,
   ReviewTranscriptEnglishRequest,
@@ -290,8 +304,10 @@ export const topicsApi = {
    * see everything, a Student sees only what their plan entitles them to
    * (empty array if no plan is assigned yet - not an error). */
   list: (params?: ListTopicsParams) => request<TopicListItem[]>(`${BACKEND_PREFIX}/topics`, { params }),
-  /** For a Student, 403s if the topic is outside their assigned plan. */
-  get: (topicId: string) => request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}`),
+  /** For a Student, 403s if the topic is outside their assigned plan/enrollment.
+   * `enrollmentId` is required only if the student has more than one active enrollment. */
+  get: (topicId: string, enrollmentId?: string) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}`, { params: { enrollment_id: enrollmentId } }),
   /** Administrator only. */
   create: (body: TopicCreateRequest) => request<TopicPublic>(`${BACKEND_PREFIX}/topics`, { method: "POST", json: body }),
   /** Administrator only. Partial update - omitted fields are left as-is. */
@@ -345,6 +361,13 @@ export const topicsApi = {
    * if the topic has no youtube_urls). */
   removeThumbnail: (topicId: string) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/thumbnail`, { method: "DELETE" }),
+  uploadSourceVideo: (topicId: string, file: File | Blob) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/source-video`, { method: "POST", form });
+  },
+  removeSourceVideo: (topicId: string) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/source-video`, { method: "DELETE" }),
   /** Administrator only. Video-optional lesson source: uploads (or replaces)
    * a PDF and extracts its text immediately - a scanned/image-only PDF with
    * no readable text is rejected (422), not silently stored. */
@@ -378,6 +401,60 @@ export const levelProfilesApi = {
     request<void>(`${BACKEND_PREFIX}/level-profiles/${profileId}`, { method: "DELETE" }),
 };
 
+export const programsApi = {
+  list: () => request<ProgramPublic[]>(`${BACKEND_PREFIX}/programs`),
+  create: (body: ProgramWriteRequest) => request<ProgramPublic>(`${BACKEND_PREFIX}/programs`, { method: "POST", json: body }),
+  update: (programId: string, body: ProgramWriteRequest) => request<ProgramPublic>(`${BACKEND_PREFIX}/programs/${programId}`, { method: "PUT", json: body }),
+  archive: (programId: string) => request<void>(`${BACKEND_PREFIX}/programs/${programId}`, { method: "DELETE" }),
+  listTopics: (programId: string) => request<ProgramTopicPublic[]>(`${BACKEND_PREFIX}/programs/${programId}/topics`),
+  assignTopic: (programId: string, body: ProgramTopicWriteRequest) =>
+    request<ProgramTopicPublic>(`${BACKEND_PREFIX}/programs/${programId}/topics`, { method: "POST", json: body }),
+  updateTopic: (programId: string, topicId: string, body: ProgramTopicUpdateRequest) =>
+    request<ProgramTopicPublic>(`${BACKEND_PREFIX}/programs/${programId}/topics/${topicId}`, { method: "PATCH", json: body }),
+  removeTopic: (programId: string, topicId: string) =>
+    request<void>(`${BACKEND_PREFIX}/programs/${programId}/topics/${topicId}`, { method: "DELETE" }),
+  assignmentsForTopic: (topicId: string) =>
+    request<ProgramTopicPublic[]>(`${BACKEND_PREFIX}/topics/${topicId}/program-assignments`),
+};
+
+export const cohortsApi = {
+  /** Center Admin sees every Cohort; a Teacher sees only the ones they lead or are assigned to. */
+  list: () => request<CohortPublic[]>(`${BACKEND_PREFIX}/cohorts`),
+  get: (cohortId: string) => request<CohortPublic>(`${BACKEND_PREFIX}/cohorts/${cohortId}`),
+  create: (body: CohortCreateRequest) => request<CohortPublic>(`${BACKEND_PREFIX}/cohorts`, { method: "POST", json: body }),
+  update: (cohortId: string, body: CohortUpdateRequest) =>
+    request<CohortPublic>(`${BACKEND_PREFIX}/cohorts/${cohortId}`, { method: "PATCH", json: body }),
+  archive: (cohortId: string) => request<void>(`${BACKEND_PREFIX}/cohorts/${cohortId}`, { method: "DELETE" }),
+  roster: (cohortId: string) => request<EnrollmentPublic[]>(`${BACKEND_PREFIX}/cohorts/${cohortId}/roster`),
+  rosterPage: (cohortId: string, params: { search?: string; page: number; limit: number }) => {
+    const query = new URLSearchParams({ page: String(params.page), limit: String(params.limit) });
+    if (params.search) query.set("search", params.search);
+    return request<EnrollmentPage>(`${BACKEND_PREFIX}/cohorts/${cohortId}/roster/page?${query}`);
+  },
+  candidates: (cohortId: string, params: { search?: string; academic_level_id?: string; unassigned_only?: boolean; page: number; limit: number }) => {
+    const query = new URLSearchParams({ page: String(params.page), limit: String(params.limit) });
+    if (params.search) query.set("search", params.search);
+    if (params.academic_level_id) query.set("academic_level_id", params.academic_level_id);
+    if (params.unassigned_only) query.set("unassigned_only", "true");
+    return request<CohortStudentCandidatePage>(`${BACKEND_PREFIX}/cohorts/${cohortId}/student-candidates?${query}`);
+  },
+  enrollStudents: (cohortId: string, body: EnrollStudentsRequest) =>
+    request<EnrollmentPublic[]>(`${BACKEND_PREFIX}/cohorts/${cohortId}/students`, { method: "POST", json: body }),
+  enrollStudentsBulk: (cohortId: string, body: EnrollStudentsRequest) =>
+    request<BulkEnrollmentResult>(`${BACKEND_PREFIX}/cohorts/${cohortId}/students/bulk`, { method: "POST", json: body }),
+  removeStudent: (cohortId: string, studentId: string) =>
+    request<void>(`${BACKEND_PREFIX}/cohorts/${cohortId}/students/${studentId}`, { method: "DELETE" }),
+  topics: (cohortId: string) => request<ProgramTopicPublic[]>(`${BACKEND_PREFIX}/cohorts/${cohortId}/topics`),
+  assignTopic: (cohortId: string, body: ProgramTopicWriteRequest) =>
+    request<ProgramTopicPublic>(`${BACKEND_PREFIX}/cohorts/${cohortId}/topics`, { method: "POST", json: body }),
+};
+
+export const enrollmentsApi = {
+  /** Student only - every active Enrollment this student holds, legacy single-Program assignment included. */
+  listMine: () => request<EnrollmentPublic[]>(`${BACKEND_PREFIX}/enrollments/me`),
+  schedule: (enrollmentId: string) => request<EnrollmentSchedule>(`${BACKEND_PREFIX}/enrollments/${enrollmentId}/schedule`),
+};
+
 // --- Units (Topic organization by unit + order) -----------------------------
 
 export const unitsApi = {
@@ -398,7 +475,7 @@ export const unitsApi = {
 // --- Calendar templates (Administrator only) --------------------------------
 
 export const calendarTemplatesApi = {
-  /** The caller's own templates only - authoring is per-admin. */
+  /** Own templates plus assigned Cohort-stage calendars for Teachers. */
   list: (kind?: TemplateKind) => request<CalendarTemplate[]>(`${BACKEND_PREFIX}/calendar-templates`, { params: kind ? { kind } : undefined }),
   get: (templateId: string) => request<CalendarTemplate>(`${BACKEND_PREFIX}/calendar-templates/${templateId}`),
   create: (body: CalendarTemplateCreateRequest) =>
@@ -417,8 +494,8 @@ export const calendarTemplatesApi = {
 export const exerciseAttemptsApi = {
   submit: (body: ExerciseAttemptCreateRequest) =>
     request<ExerciseAttemptPublic>(`${BACKEND_PREFIX}/exercise-attempts`, { method: "POST", json: body }),
-  mine: (topicId: string) =>
-    request<ExerciseAttemptPublic[]>(`${BACKEND_PREFIX}/exercise-attempts/me`, { params: { topic_id: topicId } }),
+  mine: (topicId: string, enrollmentId?: string) =>
+    request<ExerciseAttemptPublic[]>(`${BACKEND_PREFIX}/exercise-attempts/me`, { params: { topic_id: topicId, enrollment_id: enrollmentId } }),
   reviewQueue: (params?: { pending_only?: boolean; limit?: number; skip?: number }) =>
     request<ExerciseAttemptPublic[]>(`${BACKEND_PREFIX}/exercise-attempts/review`, { params }),
   review: (attemptId: string, body: ExerciseReviewRequest) =>
@@ -497,11 +574,11 @@ export const homeworkApi = {
 export const sessionsApi = {
   /** Student only. Mints a LiveKit room + token for a Mariam session tied to
    * this topic - 403s if the topic is outside their assigned plan. */
-  start: (topicId: string, mode: PracticeMode = "topic_discussion") =>
+  start: (topicId: string, mode: PracticeMode = "topic_discussion", enrollmentId?: string) =>
     request<SessionStartResponse>(`${BACKEND_PREFIX}/sessions/start`, {
       method: "POST",
       // Avatar Practice sends exactly the body it always did.
-      json: mode === "voice_practice" ? { topic_id: topicId, mode } : { topic_id: topicId },
+      json: { ...(mode === "voice_practice" ? { topic_id: topicId, mode } : { topic_id: topicId }), ...(enrollmentId ? { enrollment_id: enrollmentId } : {}) },
     }),
   /** Student only, own Avatar Practice session. Starts (or, on retry, re-mints a token for) a Cartoon/Voice Practice
    * session on the same topic that continues this conversation - see `LiveSessionService.initiate_handoff`. Never

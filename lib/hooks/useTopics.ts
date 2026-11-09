@@ -34,7 +34,7 @@ export function useTopics(params?: ListTopicsParams) {
 /** Fetched on demand, never up front - `TopicListItem` deliberately excludes
  * content fields for payload size, so a full `TopicPublic` is only worth
  * fetching once a specific topic is actually opened. */
-export function useTopic(topicId: string | null) {
+export function useTopic(topicId: string | null, enrollmentId?: string) {
   const [topic, setTopic] = useState<TopicPublic | null>(null);
   const [loading, setLoading] = useState(topicId != null);
   const [error, setError] = useState<Error | null>(null);
@@ -44,12 +44,12 @@ export function useTopic(topicId: string | null) {
     if (!topicId) return;
     let cancelled = false;
     topicsApi
-      .get(topicId)
+      .get(topicId, enrollmentId)
       .then(result => { if (!cancelled) { setTopic(result); setError(null); } })
       .catch(err => { if (!cancelled) setError(err instanceof Error ? err : new Error("Failed to load topic.")); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [topicId, reloadToken]);
+  }, [topicId, enrollmentId, reloadToken]);
 
   const refetch = useCallback(() => {
     setLoading(true);

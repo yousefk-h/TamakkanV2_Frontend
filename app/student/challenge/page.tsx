@@ -22,8 +22,6 @@ const STATE_SEVERITY: Record<LessonDayState, number> = { missed: 3, current: 2, 
 const worstState = (states: LessonDayState[]): LessonDayState =>
   states.reduce((worst, s) => (STATE_SEVERITY[s] > STATE_SEVERITY[worst] ? s : worst), "locked" as LessonDayState);
 
-const END_OF_WEEK_DAYS = [5, 12, 19, 26];
-const isEndOfWeekTask = (day: number) => END_OF_WEEK_DAYS.includes(day);
 const CHALLENGE_MILESTONE_DAYS = [10, 20, 30];
 
 const MILESTONE_ICON: Record<number, string> = { 10: "🎖️", 20: "🏅", 30: "🏆" };
@@ -61,6 +59,7 @@ export default function StudentChallengePage() {
   const { classes: myClasses } = useMyClasses(isStudent);
   const currentDay = progress?.challenge_day ?? 0;
   const challengeTotal = progress?.challenge_total_days ?? 30;
+  const restDays = calendar?.rest_days ?? [];
   const challengePercent = Math.round((currentDay / challengeTotal) * 100);
   // Flattened across every level this student is entitled to - a Standard
   // plan naturally has just one level's worth here; a Pro plan's hand-picked
@@ -97,22 +96,22 @@ export default function StudentChallengePage() {
       const classDate = new Date(asUtcIso(c.scheduled_at));
       const classUtcMs = Date.UTC(classDate.getUTCFullYear(), classDate.getUTCMonth(), classDate.getUTCDate());
       const day = Math.round((classUtcMs - startUtcMs) / 86_400_000) + 1;
-      if (day < 1 || day > 30) continue;
+      if (day < 1 || day > challengeTotal) continue;
       const list = map.get(day) ?? [];
       list.push(c);
       map.set(day, list);
     }
     return map;
-  }, [myClasses, progress]);
+  }, [myClasses, progress, challengeTotal]);
 
   const lessonSlotByDay = useMemo(() => new Map((calendar?.lesson_days ?? []).map(slot => [slot.day, slot])), [calendar]);
   type DayCourse = { topic: TopicListItem; state: LessonDayState };
   const days: { day: number; state: LessonDayState; courses: DayCourse[] }[] =
     topics.length === 0
       ? []
-      : Array.from({ length: 30 }, (_, i) => {
+      : Array.from({ length: challengeTotal }, (_, i) => {
           const day = i + 1;
-          if (isEndOfWeekTask(day)) {
+          if (restDays.includes(day)) {
             // End-of-week check-ins sit outside the lesson rollover
             // entirely - their own state is just "has today reached this
             // day yet", same rule the lesson schedule itself uses for its
@@ -129,10 +128,10 @@ export default function StudentChallengePage() {
             .filter((c): c is DayCourse => !!c);
           return { day, state: worstState(courses.map(c => c.state)), courses };
         });
-  const todaysEndOfWeekTask = isEndOfWeekTask(currentDay);
+  const todaysEndOfWeekTask = restDays.includes(currentDay);
   const pendingCount = calendar?.pending_count ?? 0;
   const [dayPickerOpen, setDayPickerOpen] = useState<number | null>(null);
-  const todaysCourses = days.find(d => d.day === currentDay && !isEndOfWeekTask(currentDay))?.courses ?? [];
+  const todaysCourses = days.find(d => d.day === currentDay && !restDays.includes(currentDay))?.courses ?? [];
   const todaysTopic = todaysCourses.find(c => c.state === "current")?.topic ?? todaysCourses[0]?.topic;
 
   return (
@@ -208,7 +207,7 @@ export default function StudentChallengePage() {
         <div className="mt-4 rounded-2xl border border-line bg-card p-5 shadow-card">
           <div className="grid grid-cols-4 gap-2.5 min-[360px]:grid-cols-5 sm:grid-cols-6 md:grid-cols-10">
             {days.map(d => {
-              const isEndOfWeek = isEndOfWeekTask(d.day);
+              const isEndOfWeek = restDays.includes(d.day);
               // End-of-week cells track their own check-in status, distinct
               // from the lesson day-state computed alongside: a check-in
               // day that's come and gone with nothing submitted is

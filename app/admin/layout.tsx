@@ -48,6 +48,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         unreviewedCount={submissions?.length ?? 0}
         showUsersNav={state.user.role === "administrator"}
         showOperationsNav={state.user.role === "root"}
+        isTeacher={state.user.role === "teacher"}
       />
       <div className="app-content min-w-0 flex-1 lg:ms-[232px]">
         <Topbar canSwitchView onLogout={handleLogout} user={state.user} />

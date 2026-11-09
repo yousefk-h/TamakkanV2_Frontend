@@ -55,6 +55,180 @@ export interface LevelProfileCreateRequest {
   avatar_guidance: string;
   order_index?: number;
 }
+
+export interface ProgramLevelDefinition {
+  id: string;
+  name: string;
+  order_index: number;
+  difficulty_level: Level;
+  level_profile_id: string | null;
+}
+
+export interface ProgramPublic extends BaseSchema {
+  code: string;
+  name: string;
+  language: string;
+  description: string;
+  base_levels: Level[];
+  level_profile_ids: string[];
+  levels: ProgramLevelDefinition[];
+  created_by_id: string;
+  is_active: boolean;
+}
+
+export interface ProgramWriteRequest {
+  code: string;
+  name: string;
+  language: string;
+  description?: string;
+  base_levels: Level[];
+  level_profile_ids?: string[];
+  levels?: ProgramLevelDefinition[];
+}
+export type ProgramTopicStatus = "draft" | "published";
+
+export interface ProgramTopicPublic extends BaseSchema {
+  program_id: string;
+  topic_id: string;
+  topic_title: string;
+  program_level_id: string | null;
+  level: Level;
+  level_profile_id: string | null;
+  order_index: number;
+  day: number | null;
+  status: ProgramTopicStatus;
+  assigned_by_id: string;
+  published_revision: number | null;
+}
+
+export interface ProgramTopicWriteRequest {
+  topic_id: string;
+  program_level_id?: string | null;
+  /** Legacy compatibility for Programs created before stable stage ids. */
+  level?: Level;
+  status?: ProgramTopicStatus;
+}
+
+export type ProgramTopicUpdateRequest = Partial<Omit<ProgramTopicWriteRequest, "topic_id">>;
+
+// --- Cohorts and Enrollments ------------------------------------------------
+
+export type CohortStatus = "active" | "completed" | "archived";
+
+export interface CohortTeacherAssignment {
+  teacher_id: string;
+  program_level_ids: string[];
+}
+
+export interface CohortCreateRequest {
+  name: string;
+  program_id: string;
+  program_level_ids: string[];
+  lead_teacher_id: string;
+  teacher_assignments: CohortTeacherAssignment[];
+  start_date: string;
+  end_date?: string | null;
+}
+
+export interface CohortUpdateRequest {
+  name?: string;
+  lead_teacher_id?: string;
+  teacher_assignments?: CohortTeacherAssignment[];
+  start_date?: string;
+  end_date?: string | null;
+  status?: CohortStatus;
+}
+
+export interface CohortPublic extends BaseSchema {
+  name: string;
+  program_id: string;
+  program_level_ids: string[];
+  lead_teacher_id: string;
+  teacher_assignments: CohortTeacherAssignment[];
+  start_date: string;
+  end_date: string | null;
+  status: CohortStatus;
+  created_by_id: string;
+  student_count: number;
+  lead_teacher_name?: string | null;
+  /** Stages the current caller may teach/manage in this Cohort. */
+  accessible_program_level_ids?: string[];
+}
+
+export type EnrollmentStatus = "active" | "completed" | "withdrawn";
+export type EnrollmentSource = "manual" | "cohort" | "legacy_backfill";
+export type LateJoinMode = "current_day" | "day_one";
+
+export interface EnrollStudentsRequest {
+  student_ids: string[];
+  program_level_id: string;
+  late_join_mode?: LateJoinMode;
+  joined_at?: string;
+}
+
+export interface EnrollmentPublic extends BaseSchema {
+  student_id: string;
+  program_id: string;
+  program_level_id: string;
+  cohort_id: string | null;
+  status: EnrollmentStatus;
+  source: EnrollmentSource;
+  joined_at: string;
+  late_join_mode: LateJoinMode | null;
+  created_by_id: string;
+  program_name: string | null;
+  program_level_name: string | null;
+  cohort_name: string | null;
+  student_name: string | null;
+  student_email: string | null;
+}
+
+export interface EnrollmentPage {
+  items: EnrollmentPublic[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/** Student account offered to a Center Admin for a specific Batch.  Academic
+ * placement is distinct from Standard/Pro access plans. */
+export interface CohortStudentCandidate {
+  id: string;
+  full_name: string;
+  email: string;
+  academic_level_id: string | null;
+  academic_level_name: string | null;
+  is_unassigned: boolean;
+}
+
+export interface CohortStudentCandidatePage {
+  items: CohortStudentCandidate[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface BulkEnrollmentResult {
+  created: EnrollmentPublic[];
+  already_enrolled_student_ids: string[];
+}
+
+export interface EnrollmentScheduleDay {
+  day: number;
+  topic_ids: string[];
+  locked: boolean;
+  topic_states: Record<string, LessonDayState>;
+  topic_titles: Record<string, string>;
+}
+
+export interface EnrollmentSchedule {
+  has_template: boolean;
+  total_days: number;
+  rest_days: number[];
+  current_day: number;
+  days: EnrollmentScheduleDay[];
+}
+
 export type TranscriptState = "queued" | "extracting" | "pending_review" | "approved_for_ai";
 
 /** Which path the pipeline actually took to produce `raw_transcript` -
@@ -62,7 +236,7 @@ export type TranscriptState = "queued" | "extracting" | "pending_review" | "appr
  * transcribing the video's audio (the fallback when no captions exist).
  * An AI-generated transcript can contain mishearings a real caption track
  * wouldn't, so the reviewing admin should know before approving it as-is. */
-export type TranscriptSource = "captions" | "ai_generated";
+export type TranscriptSource = "captions" | "ai_generated" | "local_asr" | "extracted_text" | "mixed";
 export type SubmissionKind = "audio_task" | "friday_video";
 export type ClassKind = "group" | "one_to_one";
 export type HomeworkKind = "lesson" | "writing" | "audio" | "link";
@@ -135,6 +309,8 @@ export interface UserPublic extends BaseSchema {
   email_verification_status?: "verified" | "pending" | "not_required";
   email_verification_delivery?: "not_sent" | "sent" | "failed";
   plan: PlanType | null;
+  program_id: string | null;
+  program_level_id: string | null;
   assigned_level: Level | null;
   assigned_topic_ids: string[];
   /** Pro only - which calendar template this student follows. See
@@ -234,7 +410,7 @@ export interface SetTeacherActiveRequest {
  * plan="pro" requires assigned_topic_ids and forbids assigned_level - the
  * backend enforces this with a validator, not just types. */
 export type AssignPlanRequest =
-  | { plan: "standard"; assigned_level: Level; start_date?: string }
+  | { plan: "standard"; program_id?: string; program_level_id?: string; assigned_level?: Level; start_date?: string }
   | { plan: "pro"; assigned_plan_template_id: string; start_date?: string };
 
 export interface RaiseSessionLimitRequest {
@@ -292,11 +468,15 @@ export interface LessonExercise {
   audio_url: string;
   pairs: { left: string; right: string }[];
   min_words: number;
+  allow_resubmit: boolean;
+  /** ISO timestamp in UTC; null means this activity has no deadline. */
+  deadline_at: string | null;
 }
 
 export interface ExerciseAttemptPublic extends BaseSchema {
   student_id: string;
   student_name: string;
+  enrollment_id: string | null;
   topic_id: string;
   topic_title: string;
   exercise_index: number;
@@ -317,6 +497,8 @@ export interface ExerciseAttemptCreateRequest {
   exercise_index: number;
   topic_updated_at: string;
   answer: number | string | number[];
+  /** Required only if you have more than one active enrollment. */
+  enrollment_id?: string;
 }
 
 export interface ExerciseReviewRequest {
@@ -364,6 +546,7 @@ export interface ActivityAnalytics {
 
 export interface TopicListItem extends BaseSchema {
   title: string;
+  author_name: string | null;
   level: Level;
   level_profile_id: string | null;
   level_name: string;
@@ -398,6 +581,10 @@ export interface TopicListItem extends BaseSchema {
   /** Whether a PDF lesson source has been uploaded (video-optional content) -
    * the list view doesn't carry the extracted text itself (size). */
   has_pdf: boolean;
+  has_video: boolean;
+  has_audio: boolean;
+  exercise_count: number;
+  exercise_kinds: LessonExercise["kind"][];
 }
 
 /** GET/POST/PATCH /topics/{id} shape. `avatar_prompt`/`transcript_state`/
@@ -407,6 +594,7 @@ export interface TopicListItem extends BaseSchema {
  * for everyone until a teacher approves it, so there's nothing to gate. */
 export interface TopicPublic extends BaseSchema {
   title: string;
+  content_revision: number;
   level: Level;
   level_profile_id: string | null;
   level_name: string;
@@ -418,6 +606,10 @@ export interface TopicPublic extends BaseSchema {
    * "remove custom image". */
   has_custom_thumbnail: boolean;
   video_duration_seconds: number | null;
+  /** A teacher-uploaded lesson video. Students receive the public playback
+   * URL; the provider asset id remains backend-only. */
+  uploaded_video_url: string | null;
+  uploaded_video_filename: string | null;
   warm_up_questions: string[];
   guided_questions: GuidedQuestionPart[];
   useful_phrases: UsefulPhraseGroup[];
@@ -438,6 +630,7 @@ export interface TopicPublic extends BaseSchema {
   arabic_intervention_level: ArabicInterventionLevel | null;
   transcript_state: TranscriptState | null;
   raw_transcript: TranscriptSegment[];
+  transcript_source_labels: string[];
   /** `null` until the first generation run completes. See `TranscriptSource`. */
   transcript_source: TranscriptSource | null;
   /** Same as `TopicListItem.created_by_id`. */
@@ -532,7 +725,7 @@ export type TopicUpdateRequest = Partial<TopicCreateRequest>;
 
 // --- Calendar templates (app/schema/calendar_template.py) --------------
 
-export type TemplateKind = "standard" | "custom";
+export type TemplateKind = "standard" | "custom" | "cohort";
 
 export interface CalendarDayEntry {
   day: number; // 1-30, never an end-of-week check-in day (5/12/19/26)
@@ -555,8 +748,13 @@ export interface CalendarTemplate extends BaseSchema {
   name: string;
   kind: TemplateKind;
   owner_admin_id: string;
+  program_id: string | null;
+  program_level_id: string | null;
+  cohort_id: string | null;
   level: Level | null; // required for standard, null for custom
   is_active: boolean; // standard only
+  duration_days: number;
+  rest_days: number[];
   days: CalendarDayEntry[];
 }
 
@@ -564,6 +762,8 @@ export interface CalendarTemplateCreateRequest {
   name: string;
   kind: TemplateKind;
   level?: Level | null;
+  duration_days?: number;
+  rest_days?: number[];
   days?: CalendarDayEntry[];
 }
 
@@ -613,6 +813,8 @@ export interface MarkReviewedRequest {
 
 export interface ListTopicsParams {
   transcript_state?: TranscriptState;
+  search?: string;
+  level?: Level;
   limit?: number; // default 50, max 200 (DEFAULT_PAGE_SIZE / MAX_PAGE_SIZE)
   skip?: number;
 }
@@ -682,6 +884,9 @@ export interface HomeworkPublic extends BaseSchema {
   kind: HomeworkKind;
   due_at: string;
   participant_ids: string[];
+  cohort_id: string | null;
+  program_id: string | null;
+  program_level_id: string | null;
   topic_id: string | null;
   topic_title: string | null;
   external_url: string;
@@ -692,7 +897,12 @@ export interface HomeworkCreateRequest {
   instructions: string;
   kind: HomeworkKind;
   due_at: string;
-  participant_ids: string[];
+  /** Either a hand-picked roster... */
+  participant_ids?: string[];
+  /** ...or a Cohort target (optionally one of its stages) - every student
+   * the caller can reach in that Cohort. See `HomeworkService.create`. */
+  cohort_id?: string;
+  program_level_id?: string;
   topic_id?: string;
   external_url?: string;
 }
@@ -905,6 +1115,8 @@ export interface LessonDaySlot {
  * "you still owe N lessons" reminder banner. */
 export interface ChallengeCalendar {
   lesson_days: LessonDaySlot[];
+  total_days: number;
+  rest_days: number[];
   pending_count: number;
   /** False when no calendar template is assigned yet (no active Standard
    * template for the student's level, or a Pro student with none assigned) -

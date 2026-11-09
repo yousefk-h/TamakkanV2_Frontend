@@ -117,7 +117,7 @@ export default function StudentHomePage() {
                 <span aria-hidden="true">{LEVEL_EMOJI[level]}</span>
               )}
               <Link
-                href={`/student/lessons/${currentTopic.id}`}
+                href="/student/enrollments"
                 aria-label={t("studentHome.startLesson")}
                 className="absolute left-1/2 top-1/2 grid size-[50px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white/25 bg-white text-brand-blue"
               >
@@ -131,7 +131,7 @@ export default function StudentHomePage() {
               <h3 className="m-0 text-lg">{currentTopic.title}</h3>
 
               <Link
-                href={`/student/lessons/${currentTopic.id}`}
+                href="/student/enrollments"
                 className="mt-1 inline-flex w-fit items-center gap-2 rounded-[10px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white shadow-[0_7px_17px_rgb(var(--brand-shadow-rgb)/.28)]"
               >
                 <Icon name="play" className="size-4" /> {t("studentHome.startHere")}
@@ -193,14 +193,14 @@ export default function StudentHomePage() {
               <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("studentHome.recommendedForYou")}</span>
               <h2 className="my-1 text-2xl tracking-tight">{t("studentHome.moreLessonsIn", { level: LEVEL_LABEL[level] })}</h2>
             </div>
-            <Link href="/student/lessons" className="whitespace-nowrap text-sm font-bold text-brand-blue">
+            <Link href="/student/enrollments" className="whitespace-nowrap text-sm font-bold text-brand-blue">
               {t("studentHome.browseAllLessons")} →
             </Link>
           </section>
           <div className="mt-4 flex gap-4 overflow-x-auto pb-2">
             {recommended.map((topic, i) => (
               <div key={topic.id} className="w-[240px] flex-none sm:w-[260px]">
-                <CourseCard topic={topic} index={i + 1} />
+                <CourseCard topic={topic} index={i + 1} lessonHref="/student/enrollments" />
               </div>
             ))}
             {recommended.length === 0 && <p className="text-sm text-muted">{t("studentHome.noOtherLessons")}</p>}

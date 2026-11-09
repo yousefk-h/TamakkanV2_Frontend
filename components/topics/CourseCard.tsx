@@ -30,7 +30,7 @@ const THUMB_STYLES = [
  * renders whatever it says rather than cross-referencing the calendar
  * itself. `lesson_status` is `null` for an Administrator/Root view, which
  * never happens here since this card is student-only. */
-export function CourseCard({ topic, index }: { topic: TopicListItem; index: number }) {
+export function CourseCard({ topic, index, lessonHref }: { topic: TopicListItem; index: number; lessonHref?: string }) {
   const { t } = useI18n();
   const locked = topic.lesson_status === "locked";
   return (
@@ -86,7 +86,7 @@ export function CourseCard({ topic, index }: { topic: TopicListItem; index: numb
             </span>
           ) : (
             <Link
-              href={`/student/lessons/${topic.id}`}
+              href={lessonHref ?? `/student/lessons/${topic.id}`}
               className="inline-block rounded-[10px] bg-brand-blue px-4 py-2 text-xs font-bold text-white shadow-[0_7px_17px_rgb(var(--brand-shadow-rgb)/.22)]"
             >
               {t("common.open")}
