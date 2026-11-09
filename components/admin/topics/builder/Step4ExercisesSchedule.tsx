@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDraggable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import type { LessonExercise } from "@/lib/api/types";
+import type { LessonDraftExerciseSuggestion, LessonDraftJob, LessonExercise } from "@/lib/api/types";
 import { topicsApi, ApiError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { insertLessonBlock, moveLessonBlock } from "@/lib/lessonBuilder/order";
@@ -33,7 +33,7 @@ function BlockDragHandle({ index, label }: { index: number; label: string }) {
     className={`min-h-11 min-w-11 cursor-grab touch-none rounded-lg border border-line bg-bg text-lg text-muted active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`} title={label}>⠿</button>;
 }
 
-export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions }: {
+export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty }: {
   topicId: string | null;
   exercises: LessonExercise[];
   onExercisesChange: (exercises: LessonExercise[]) => void;
@@ -45,6 +45,16 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
   onGenerate: (index: number, count: number) => void;
   onAcceptSuggestions: () => void;
   onDiscardSuggestions: () => void;
+  lessonDraftJob: LessonDraftJob | null;
+  draftExercises: LessonDraftExerciseSuggestion[];
+  onGenerateLessonDraft: () => void;
+  lessonDraftStarting: boolean;
+  lessonDraftError: string | null;
+  onAcceptDraftExercise: (index: number) => void;
+  onRejectDraftExercise: (index: number) => void;
+  onRegenerateDraftExercise: (index: number) => void;
+  draftExerciseActionIndex: number | null;
+  exercisesDirty: boolean;
 }) {
   const { t, locale } = useI18n();
   const [draftCount, setDraftCount] = useState(3);
@@ -85,7 +95,59 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
     }
   };
 
+  const stepLabel: Record<LessonDraftJob["state"], string> = {
+    pending: t("builder.lessonDraftStepPending"), running: t("builder.lessonDraftStepRunning"),
+    done: t("builder.lessonDraftStepDone"), skipped: t("builder.lessonDraftStepSkipped"), failed: t("builder.lessonDraftStepFailed"),
+  };
+  const stepBadgeClass: Record<LessonDraftJob["state"], string> = {
+    pending: "bg-line text-muted", running: "bg-brand-primary-pale text-brand-blue",
+    done: "bg-brand-cyan/20 text-brand-cyan", skipped: "bg-line text-muted", failed: "bg-brand-coral-pale text-brand-coral",
+  };
+  const isLessonDraftRunning = lessonDraftJob?.state === "running";
+
   return <section className="mx-auto max-w-[1200px] space-y-7">
+    <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale/30 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-lg font-bold text-ink">{t("builder.lessonDraftTitle")}</h3>
+          <p className="mt-1 max-w-2xl text-sm text-muted">{t("builder.lessonDraftDesc")}</p>
+        </div>
+        <button type="button" disabled={!canAiDraft || lessonDraftStarting || isLessonDraftRunning || exercisesDirty}
+          onClick={onGenerateLessonDraft}
+          className="min-h-11 shrink-0 rounded-xl bg-brand-blue px-5 text-sm font-bold text-white disabled:opacity-50">
+          {lessonDraftStarting || isLessonDraftRunning ? t("builder.lessonDraftRunning") : t("builder.lessonDraftButton")}
+        </button>
+      </div>
+      {!canAiDraft && <p className="mt-2 text-xs text-muted">{t("builder.lessonDraftNeedsSource")}</p>}
+      {exercisesDirty && <p className="mt-2 text-xs text-muted">{t("builder.lessonDraftDirtyHint")}</p>}
+      {lessonDraftError && <p role="alert" className="mt-2 text-sm text-brand-coral">{lessonDraftError}</p>}
+      {lessonDraftJob && <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className={`rounded-full px-3 py-1 font-bold ${stepBadgeClass[lessonDraftJob.content_step]}`}>{t("builder.lessonDraftContentStep")}: {stepLabel[lessonDraftJob.content_step]}</span>
+        {Object.entries(lessonDraftJob.exercise_steps).map(([kind, state]) => (
+          <span key={kind} className={`rounded-full px-3 py-1 font-bold capitalize ${stepBadgeClass[state]}`}>{kind.replaceAll("_", " ")}: {stepLabel[state]}</span>
+        ))}
+      </div>}
+      {lessonDraftJob?.state === "done" && <p className="mt-2 text-sm font-semibold text-brand-cyan">{t("builder.lessonDraftDone")}</p>}
+      {lessonDraftJob?.state === "failed" && <p className="mt-2 text-sm font-semibold text-brand-coral">{t("builder.lessonDraftPartialFailure")}</p>}
+    </div>
+
+    {draftExercises.length > 0 && <div className="rounded-2xl border border-line bg-card p-4">
+      <h3 className="text-base font-bold text-ink">{t("builder.lessonDraftSuggestionsTitle")}</h3>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {draftExercises.map((suggestion, index) => <div key={index} className="rounded-xl border border-line bg-bg p-3">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-brand-blue">{suggestion.kind.replaceAll("_", " ")}</span>
+          <b className="mt-1 block text-sm text-ink">{suggestion.exercise.prompt}</b>
+          {suggestion.exercise.content && <p className="mt-1 whitespace-pre-wrap text-xs text-muted">{suggestion.exercise.content}</p>}
+          {suggestion.exercise.options.length > 0 && <p className="mt-1 text-xs text-muted">{suggestion.exercise.options.join(" · ")} · {t("builder.correctAnswer")}: {suggestion.exercise.options[suggestion.exercise.correct_option ?? 0]}</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" disabled={exercisesDirty || draftExerciseActionIndex !== null} onClick={() => onAcceptDraftExercise(index)} className="min-h-10 rounded-lg bg-brand-blue px-3 text-xs font-bold text-white disabled:opacity-50">{t("builder.lessonDraftAccept")}</button>
+            <button type="button" disabled={exercisesDirty || draftExerciseActionIndex !== null} onClick={() => onRegenerateDraftExercise(index)} className="min-h-10 rounded-lg border border-line px-3 text-xs font-bold disabled:opacity-50">{t("builder.lessonDraftRegenerate")}</button>
+            <button type="button" disabled={exercisesDirty || draftExerciseActionIndex !== null} onClick={() => onRejectDraftExercise(index)} className="min-h-10 rounded-lg border border-line px-3 text-xs text-brand-coral disabled:opacity-50">{t("builder.lessonDraftReject")}</button>
+          </div>
+        </div>)}
+      </div>
+    </div>}
+
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={event => setActiveDragId(String(event.active.id))} onDragCancel={() => setActiveDragId(null)} onDragEnd={handleDragEnd}>
       <div dir="ltr" className="grid gap-5 lg:grid-cols-[330px_minmax(0,1fr)] lg:items-start">
       <aside dir={locale === "ar" ? "rtl" : "ltr"} className="min-w-0 rounded-2xl border border-line bg-bg p-3 lg:sticky lg:top-0">

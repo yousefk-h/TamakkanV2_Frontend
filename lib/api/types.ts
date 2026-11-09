@@ -648,6 +648,36 @@ export interface TopicPublic extends BaseSchema {
   pdf_url: string | null;
   pdf_filename: string | null;
   pdf_extracted_text: string | null;
+  /** AI-suggested exercises awaiting teacher review (Slice C) - `[]` for a
+   * Student, same disclosure rule as `raw_transcript`. Index into this
+   * array is what `topicsApi.acceptDraftExercise`/`rejectDraftExercise`/
+   * `regenerateDraftExercise` take. */
+  draft_exercises: LessonDraftExerciseSuggestion[];
+  /** Progress of the most recent "Generate Lesson Draft" run - `null`
+   * before the first run, or for a Student. Poll `topicsApi.get` after
+   * `generateLessonDraft` to watch this resolve from "running" to "done"/
+   * "failed". */
+  lesson_draft_job: LessonDraftJob | null;
+}
+
+export type LessonDraftStepState = "pending" | "running" | "done" | "skipped" | "failed";
+
+export interface LessonDraftExerciseSuggestion {
+  kind: LessonExercise["kind"];
+  exercise: LessonExercise;
+  state: LessonDraftStepState;
+  error: string | null;
+}
+
+export interface LessonDraftJob {
+  state: LessonDraftStepState;
+  content_step: LessonDraftStepState;
+  /** Exercise kind (e.g. "multiple_choice") -> its own step status. */
+  exercise_steps: Record<string, LessonDraftStepState>;
+  planned_calls: number;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
 }
 
 /** One row of `TopicAdminDetail.enrolled_students`. */

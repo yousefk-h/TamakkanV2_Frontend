@@ -344,6 +344,27 @@ export const topicsApi = {
    * a grounding fix). 202 - poll `get()` the same way. */
   regenerateContent: (topicId: string) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/regenerate-content`, { method: "POST" }),
+  /** Administrator only. The unified "Generate Lesson Draft" action (Slice
+   * C): fills whatever content fields are still empty and drafts a small,
+   * bounded default set of exercise suggestions into `draft_exercises` -
+   * never directly into `lesson_exercises`. 202 - poll `get()` for
+   * `lesson_draft_job` progress and `draft_exercises` for suggestions to
+   * review. 409 if a draft is already running; 422 if there's nothing left
+   * to draft or the topic's remaining daily AI budget can't cover it. */
+  generateLessonDraft: (topicId: string) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/generate-lesson-draft`, { method: "POST" }),
+  /** Moves one pending AI-suggested exercise into the real, published
+   * `lesson_exercises` list. */
+  acceptDraftExercise: (topicId: string, index: number) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/draft-exercises/${index}/accept`, { method: "POST" }),
+  /** Discards one pending AI-suggested exercise - it was never saved
+   * anywhere a student could reach it. */
+  rejectDraftExercise: (topicId: string, index: number) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/draft-exercises/${index}/reject`, { method: "POST" }),
+  /** Replaces one pending suggestion with a fresh draft of the same
+   * exercise kind - same cost controls as the initial draft. */
+  regenerateDraftExercise: (topicId: string, index: number) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/draft-exercises/${index}/regenerate`, { method: "POST" }),
   reviewTranscriptEnglish: (topicId: string, transcript: string) =>
     request<ReviewTranscriptEnglishResult>(`${BACKEND_PREFIX}/topics/${topicId}/review-transcript-english`, {
       method: "POST",

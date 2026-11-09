@@ -255,6 +255,63 @@ export function ProgramBuilder({
     return () => clearTimeout(timeout);
   }, [manualDraftPending, manualDraftPollAttempts, refetchTopic]);
 
+  // Slice C: the unified "Generate Lesson Draft" action. Same "background
+  // task, poll via refetchTopic" shape as handleDraftContent/
+  // handleRegenerateContent above - `lesson_draft_job.state` (not a local
+  // flag) is the actual source of truth for whether it's still running,
+  // since it's the server's own job, not this request's near-instant
+  // round trip.
+  const [lessonDraftStarting, setLessonDraftStarting] = useState(false);
+  const [lessonDraftError, setLessonDraftError] = useState<string | null>(null);
+  const [lessonDraftPollAttempts, setLessonDraftPollAttempts] = useState(0);
+  const [draftExerciseActionIndex, setDraftExerciseActionIndex] = useState<number | null>(null);
+  const lessonDraftJob = loadedTopic?.lesson_draft_job ?? null;
+  const lessonDraftRunning = lessonDraftJob?.state === "running" && lessonDraftPollAttempts < DRAFT_POLL_MAX_ATTEMPTS;
+  useEffect(() => {
+    if (!lessonDraftRunning) return;
+    const timeout = setTimeout(() => {
+      setLessonDraftPollAttempts(a => a + 1);
+      refetchTopic();
+    }, DRAFT_POLL_INTERVAL_MS);
+    return () => clearTimeout(timeout);
+  }, [lessonDraftRunning, lessonDraftPollAttempts, refetchTopic]);
+
+  const handleGenerateLessonDraft = async () => {
+    if (!topicId) return;
+    setLessonDraftStarting(true);
+    setLessonDraftError(null);
+    try {
+      await topicsApi.generateLessonDraft(topicId);
+      setLessonDraftPollAttempts(0);
+      await refetchTopic();
+    } catch (err) {
+      setLessonDraftError(err instanceof ApiError ? err.message : t("builderErrors.lessonDraftFailed"));
+    } finally {
+      setLessonDraftStarting(false);
+    }
+  };
+
+  // Accept/reject/regenerate all merge into the server's own persisted
+  // `lesson_exercises`/`draft_exercises` - disabled while `exercisesDirty`
+  // (unsaved local card edits) so a teacher's own in-progress edits in this
+  // step are never silently overwritten by refetching the server's state
+  // out from under them; they save first, then review suggestions.
+  const handleDraftExerciseAction = async (index: number, action: "accept" | "reject" | "regenerate") => {
+    if (!topicId || exercisesDirty) return;
+    setDraftExerciseActionIndex(index);
+    setLessonDraftError(null);
+    try {
+      if (action === "accept") await topicsApi.acceptDraftExercise(topicId, index);
+      else if (action === "reject") await topicsApi.rejectDraftExercise(topicId, index);
+      else await topicsApi.regenerateDraftExercise(topicId, index);
+      await refetchTopic();
+    } catch (err) {
+      setLessonDraftError(err instanceof ApiError ? err.message : t("builderErrors.lessonDraftFailed"));
+    } finally {
+      setDraftExerciseActionIndex(null);
+    }
+  };
+
   const handleStep1Continue = async () => {
     setSaving(true);
     setSaveError(null);
@@ -686,7 +743,8 @@ export function ProgramBuilder({
               />
             )}
             {step === 4 && (
-              <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)} />
+              <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
+                lessonDraftJob={lessonDraftJob} draftExercises={loadedTopic?.draft_exercises ?? []} onGenerateLessonDraft={handleGenerateLessonDraft} lessonDraftStarting={lessonDraftStarting} lessonDraftError={lessonDraftError} onAcceptDraftExercise={index => handleDraftExerciseAction(index, "accept")} onRejectDraftExercise={index => handleDraftExerciseAction(index, "reject")} onRegenerateDraftExercise={index => handleDraftExerciseAction(index, "regenerate")} draftExerciseActionIndex={draftExerciseActionIndex} exercisesDirty={exercisesDirty} />
             )}
             {step === 5 && (
               <div className="mx-auto max-w-[720px]">
