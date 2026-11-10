@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
 import { TemplateBuilder } from "@/components/admin/calendars/TemplateBuilder";
-import { ApiError, programsApi, usersApi } from "@/lib/api/client";
+import { ApiError, cohortsApi, programsApi, usersApi } from "@/lib/api/client";
 import { useCalendarTemplatesContext } from "@/lib/calendarTemplates/CalendarTemplatesContext";
 import { LEVEL_EMOJI, LEVEL_LABEL } from "@/lib/topics/helpers";
-import type { AssignPlanRequest, Level, PlanType, ProgramPublic, ProgramTopicPublic, UserPublic } from "@/lib/api/types";
+import type { AssignPlanRequest, CohortPublic, Level, PlanType, ProgramPublic, ProgramTopicPublic, UserPublic } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
 function generatePassword(): string {
@@ -25,13 +25,21 @@ function todayLocalIsoDate(): string {
 
 /** Standard (whole-level curriculum) vs Pro (a calendar template from the
  * admin's own reusable library) plan builder, opened either to invite a
- * brand-new student (`student === null`) or to edit an existing one's
- * assignment. Both real: creating a student calls `usersApi.createStudent`,
- * assigning a plan calls `usersApi.assignPlan` - Standard with
- * `assigned_level`, Pro with `assigned_plan_template_id` (the backend then
- * derives entitlement from that template's own topic set, so there's one
- * source of truth instead of a hand-picked list that could drift from it -
- * see `UserService.assign_plan`). */
+ * brand-new student (`student === null`) or to assign an existing one
+ * (`student` - this ADDS an enrollment, it never removes one: a student can
+ * hold several active Enrollments at once, see `CohortService.enroll_students`).
+ *
+ * Standard now creates a real `Enrollment` (Program → Cohort → Stage) through
+ * the same `cohortsApi.enrollStudents` endpoint the Cohort roster page uses -
+ * NOT the legacy `usersApi.assignPlan` scalar fields, which every other
+ * Enrollment-aware surface (My Students, Learning Journey, Homework
+ * targeting, Messaging) never reads. `enroll_students` already no-ops on a
+ * duplicate active Enrollment in the same Cohort, so re-assigning the same
+ * Program/Cohort/Stage is harmless.
+ *
+ * Pro is unchanged: a directly assigned custom calendar template is a
+ * subscription/access-tier concept, not a curriculum Enrollment, and still
+ * goes through `usersApi.assignPlan` - see `UserService.assign_plan`. */
 export function AssignPlanModal({
   student,
   onClose,
@@ -49,18 +57,24 @@ export function AssignPlanModal({
   const [password, setPassword] = useState(() => (student ? "" : generatePassword()));
   const [planType, setPlanType] = useState<PlanType>(student?.plan ?? "standard");
   const [programs, setPrograms] = useState<ProgramPublic[]>([]);
+  const [cohorts, setCohorts] = useState<CohortPublic[]>([]);
   const [programTopics, setProgramTopics] = useState<{ programId: string; items: ProgramTopicPublic[] } | null>(null);
-  const [selectedProgramId, setSelectedProgramId] = useState(student?.program_id ?? "");
-  const [selectedLevel, setSelectedLevel] = useState<Level>(student?.assigned_level ?? "beginner");
-  const [selectedProgramLevelId, setSelectedProgramLevelId] = useState(student?.program_level_id ?? "");
+  // Deliberately NOT pre-filled from the student's legacy `program_id` -
+  // a student can hold several Enrollments, so there is no single "current"
+  // one to show here; every open of this modal is an explicit new choice.
+  const [selectedProgramId, setSelectedProgramId] = useState("");
+  const [selectedCohortId, setSelectedCohortId] = useState("");
+  const [selectedLevel, setSelectedLevel] = useState<Level>("beginner");
+  const [selectedProgramLevelId, setSelectedProgramLevelId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(student?.assigned_plan_template_id ?? "");
-  const [startDate, setStartDate] = useState<string>(student?.program_start_date ?? todayLocalIsoDate());
+  const [startDate, setStartDate] = useState<string>(todayLocalIsoDate());
   const [buildingTemplate, setBuildingTemplate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdStudent, setCreatedStudent] = useState<UserPublic | null>(null);
 
   useEffect(() => { programsApi.list().then(setPrograms).catch(() => undefined); }, []);
+  useEffect(() => { cohortsApi.list().then(setCohorts).catch(() => undefined); }, []);
   useEffect(() => {
     if (!selectedProgramId) return;
     let active = true;
@@ -70,13 +84,24 @@ export function AssignPlanModal({
     return () => { active = false; };
   }, [selectedProgramId]);
   const selectedProgram = useMemo(() => programs.find(program => program.id === selectedProgramId) ?? null, [programs, selectedProgramId]);
-  const availableProgramLevels = selectedProgram?.levels ?? [];
+  const cohortsForProgram = useMemo(
+    () => cohorts.filter(cohort => cohort.program_id === selectedProgramId),
+    [cohorts, selectedProgramId],
+  );
+  const selectedCohort = useMemo(() => cohortsForProgram.find(cohort => cohort.id === selectedCohortId) ?? null, [cohortsForProgram, selectedCohortId]);
+  // Only the stages this Cohort actually runs, further narrowed to what the
+  // current caller (a stage-scoped additional Teacher) may enroll into -
+  // same source the Homework Cohort-audience picker and the Cohort roster
+  // page already trust (`CohortPublic.accessible_program_level_ids`).
+  const accessibleStageIds = selectedCohort ? (selectedCohort.accessible_program_level_ids ?? selectedCohort.program_level_ids) : [];
+  const availableProgramLevels = (selectedProgram?.levels ?? []).filter(stage => accessibleStageIds.includes(stage.id));
   const selectedStageTopics = (programTopics?.programId === selectedProgramId ? programTopics.items : [])
     .filter(item => item.program_level_id === selectedProgramLevelId && item.status === "published");
 
   const canSave = student
-    ? (planType === "standard" ? !!selectedProgramId && !!selectedProgramLevelId : !!selectedTemplateId)
-    : email.trim().length > 0 && fullName.trim().length > 0 && password.length > 0 && (planType === "standard" ? !!selectedProgramId && !!selectedProgramLevelId : !!selectedTemplateId);
+    ? (planType === "standard" ? !!selectedCohortId && !!selectedProgramLevelId : !!selectedTemplateId)
+    : email.trim().length > 0 && fullName.trim().length > 0 && password.length > 0
+      && (planType === "standard" ? !!selectedCohortId && !!selectedProgramLevelId : !!selectedTemplateId);
 
   const handleSave = async () => {
     setSaving(true);
@@ -86,11 +111,16 @@ export function AssignPlanModal({
       // A plan error must not make a retry create the same account again.
       if (!student) setCreatedStudent(account);
       const studentId = account.id;
-      const planBody: AssignPlanRequest =
-        planType === "standard"
-          ? { plan: "standard", program_id: selectedProgramId, program_level_id: selectedProgramLevelId, start_date: startDate }
-          : { plan: "pro", assigned_plan_template_id: selectedTemplateId, start_date: startDate };
-      await usersApi.assignPlan(studentId, planBody);
+      if (planType === "standard") {
+        await cohortsApi.enrollStudents(selectedCohortId, {
+          student_ids: [studentId],
+          program_level_id: selectedProgramLevelId,
+          joined_at: new Date(`${startDate}T00:00:00`).toISOString(),
+        });
+      } else {
+        const planBody: AssignPlanRequest = { plan: "pro", assigned_plan_template_id: selectedTemplateId, start_date: startDate };
+        await usersApi.assignPlan(studentId, planBody);
+      }
       onSaved();
       onClose();
     } catch (err) {
@@ -164,12 +194,41 @@ export function AssignPlanModal({
 
       {planType === "standard" && <label className="mt-4 grid gap-1.5 text-sm font-bold text-ink">
         {t("assignPlanModal.program")}
-        <select value={selectedProgramId} onChange={event => { const id = event.target.value; setSelectedProgramId(id); const next = programs.find(program => program.id === id); const stage = next?.levels[0]; setSelectedProgramLevelId(stage?.id ?? ""); if (stage) setSelectedLevel(stage.difficulty_level); }} required className="rounded-[9px] border border-line bg-card px-3 py-2.5 text-sm outline-brand-blue">
+        <select
+          value={selectedProgramId}
+          onChange={event => { setSelectedProgramId(event.target.value); setSelectedCohortId(""); setSelectedProgramLevelId(""); }}
+          required
+          className="rounded-[9px] border border-line bg-card px-3 py-2.5 text-sm outline-brand-blue"
+        >
           <option value="">{programs.length ? t("assignPlanModal.chooseProgram") : t("assignPlanModal.noPrograms")}</option>
           {programs.map(program => <option key={program.id} value={program.id}>{program.name} · {program.language}</option>)}
         </select>
         {selectedProgram?.description && <small className="font-medium text-muted">{selectedProgram.description}</small>}
       </label>}
+
+      {planType === "standard" && selectedProgramId && (
+        <label className="mt-4 grid gap-1.5 text-sm font-bold text-ink">
+          {t("assignPlanModal.cohort")}
+          <select
+            value={selectedCohortId}
+            onChange={event => {
+              const id = event.target.value;
+              setSelectedCohortId(id);
+              const cohort = cohortsForProgram.find(c => c.id === id);
+              const stages = cohort ? (cohort.accessible_program_level_ids ?? cohort.program_level_ids) : [];
+              const firstStage = selectedProgram?.levels.find(level => stages.includes(level.id));
+              setSelectedProgramLevelId(firstStage?.id ?? "");
+              if (firstStage) setSelectedLevel(firstStage.difficulty_level);
+            }}
+            required
+            className="rounded-[9px] border border-line bg-card px-3 py-2.5 text-sm outline-brand-blue"
+          >
+            <option value="">{cohortsForProgram.length ? t("assignPlanModal.chooseCohort") : t("assignPlanModal.noCohortsForProgram")}</option>
+            {cohortsForProgram.map(cohort => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}
+          </select>
+          {!cohortsForProgram.length && <small className="font-medium text-muted">{t("assignPlanModal.noCohortsForProgramHint")}</small>}
+        </label>
+      )}
 
       <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         <button
@@ -203,6 +262,9 @@ export function AssignPlanModal({
 
       {planType === "standard" ? (
         <>
+          {!selectedCohortId && (
+            <p className="mt-4 text-xs text-muted">{t("assignPlanModal.chooseCohortFirst")}</p>
+          )}
           <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             {availableProgramLevels.map((stage, i) => (
               <button
