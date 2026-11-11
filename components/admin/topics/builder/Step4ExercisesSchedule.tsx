@@ -6,6 +6,7 @@ import type { LessonDraftExerciseSuggestion, LessonDraftJob, LessonExercise } fr
 import { topicsApi, ApiError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { insertLessonBlock, moveLessonBlock } from "@/lib/lessonBuilder/order";
+import { withExerciseDefaults } from "@/lib/topics/helpers";
 
 const SKILL_KINDS = ["video", "vocab", "image_completion", "listening", "grammar", "reading", "writing", "speaking", "game", "series", "word_order", "error_correction", "dialogue_completion"] as const;
 const ANSWER_KINDS = new Set<LessonExercise["kind"]>(["multiple_choice", "image_completion", "listening", "grammar", "reading"]);
@@ -40,7 +41,7 @@ function BlockDragHandle({ index, label }: { index: number; label: string }) {
     className={`min-h-11 min-w-11 cursor-grab touch-none rounded-lg border border-line bg-bg text-lg text-muted active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`} title={label}>⠿</button>;
 }
 
-export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty }: {
+export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty }: {
   topicId: string | null;
   exercises: LessonExercise[];
   onExercisesChange: (exercises: LessonExercise[]) => void;
@@ -64,6 +65,7 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
   exercisesDirty: boolean;
 }) {
   const { t, locale } = useI18n();
+  const exercises = rawExercises.map(withExerciseDefaults);
   const [draftCount, setDraftCount] = useState(3);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -207,15 +209,15 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
             <p className="mb-0 mt-2 text-xs text-muted">{canAiDraft ? t("builder.aiReviewHint") : t("builder.aiNeedsSource")}</p>
             {suggestions?.index === index && <div className="mt-3 rounded-lg border border-line bg-card p-3">
               <b className="text-sm">{t("builder.aiSuggestions")}</b>
-              <ol className="mt-2 list-inside list-decimal space-y-3 text-sm">{suggestions.exercises.map((item, i) => <li key={i}>
+              <ol className="mt-2 list-inside list-decimal space-y-3 text-sm">{suggestions.exercises.map(withExerciseDefaults).map((item, i) => <li key={i}>
                 <b>{item.prompt}</b>
                 {item.content && <span className="mt-1 block whitespace-pre-wrap ps-5 text-xs text-muted">{item.content}</span>}
                 {item.arabic_note && <span dir="rtl" className="mt-1 block ps-5 text-xs text-muted">{item.arabic_note}</span>}
                 {item.options.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.options.join(" · ")} · {t("builder.correctAnswer")}: {item.options[item.correct_option ?? 0]}</span>}
-                {item.pairs.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.pairs.map(pair => `${pair.left} → ${pair.right}`).join(" · ")}</span>}
-                {item.ordering_words.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.ordering_words.join(" ")}</span>}
-                {item.accepted_answers.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.content} → {item.accepted_answers.join(" / ")}</span>}
-                {item.dialogue_turns.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.dialogue_turns.map(turn => turn.is_blank ? `${turn.speaker}: ___ (${turn.accepted_answers.join(" / ")})` : `${turn.speaker}: ${turn.text}`).join(" · ")}</span>}
+                {item.kind === "game" && item.pairs.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.pairs.map(pair => `${pair.left} → ${pair.right}`).join(" · ")}</span>}
+                {item.kind === "word_order" && item.ordering_words.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.ordering_words.join(" ")}</span>}
+                {item.kind === "error_correction" && item.accepted_answers.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.content} → {item.accepted_answers.join(" / ")}</span>}
+                {item.kind === "dialogue_completion" && item.dialogue_turns.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.dialogue_turns.map(turn => turn.is_blank ? `${turn.speaker}: ___ (${turn.accepted_answers.join(" / ")})` : `${turn.speaker}: ${turn.text}`).join(" · ")}</span>}
               </li>)}</ol>
               <div className="mt-3 flex gap-2"><button type="button" onClick={onAcceptSuggestions} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">{t("builder.aiUseSuggestions")}</button><button type="button" onClick={onDiscardSuggestions} className="min-h-11 rounded-lg border border-line px-4 text-sm">{t("builder.aiDiscard")}</button></div>
             </div>}

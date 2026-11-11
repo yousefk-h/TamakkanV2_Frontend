@@ -1,10 +1,10 @@
 "use client";
 
 import type { LessonExercise, Level, VocabularyItem } from "@/lib/api/types";
-import { LEVEL_LABEL } from "@/lib/topics/helpers";
+import { LEVEL_LABEL, withExerciseDefaults } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
-export function LessonStudentPreview({ title, level, levelName, exercises, vocabulary }: {
+export function LessonStudentPreview({ title, level, levelName, exercises: rawExercises, vocabulary }: {
   title: string;
   level: Level;
   levelName?: string;
@@ -12,6 +12,7 @@ export function LessonStudentPreview({ title, level, levelName, exercises, vocab
   vocabulary: VocabularyItem[];
 }) {
   const { t } = useI18n();
+  const exercises = rawExercises.map(withExerciseDefaults);
   return <div className="mx-auto w-full max-w-[430px] overflow-hidden rounded-[30px] border-[8px] border-brand-navy bg-bg shadow-2xl">
     <header className="bg-brand-navy px-5 py-4 text-white">
       <p className="text-xs font-bold uppercase tracking-wider text-brand-cyan">{levelName || LEVEL_LABEL[level]}</p>
