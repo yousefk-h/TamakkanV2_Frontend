@@ -35,6 +35,7 @@ export interface ApiErrorBody {
 export type Role = "student" | "teacher" | "administrator" | "root";
 export type PlanType = "standard" | "pro";
 export type Level = "beginner" | "intermediate" | "advanced";
+export type LessonFlow = "standard" | "interactive_video";
 
 /** A center-defined label mapped to one stable proficiency band. The mapping
  * keeps existing calendars and agents compatible while allowing the center
@@ -835,6 +836,9 @@ export interface TopicPublic extends BaseSchema {
   learning_objectives: LearningObjective[];
   objectives_approved: boolean;
   objective_drafts: LearningObjective[];
+  /** Teacher-only flow configuration. Interactive video cannot be published
+   * until its checkpoint player exists. */
+  lesson_flow: LessonFlow | null;
   /** AI-suggested exercises awaiting teacher review (Slice C) - `[]` for a
    * Student, same disclosure rule as `raw_transcript`. Index into this
    * array is what `topicsApi.acceptDraftExercise`/`rejectDraftExercise`/
@@ -935,6 +939,7 @@ export interface TopicCreateRequest {
   voice_prompt?: string;
   arabic_support_enabled?: boolean;
   arabic_intervention_level?: ArabicInterventionLevel;
+  lesson_flow?: LessonFlow;
 }
 
 /** Every field optional - PATCH only touches what's provided. */
