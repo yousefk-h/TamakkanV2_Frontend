@@ -43,10 +43,8 @@ export function Step2VideoTranscript({
   onRemoveThumbnail,
   uploadingThumbnail,
   pdfFilename,
-  onUploadPdf,
   onRemovePdf,
   uploadingPdf,
-  pdfError,
   sourceDocuments,
   onUploadDocument,
   onAddTextSource,
@@ -82,10 +80,8 @@ export function Step2VideoTranscript({
   uploadingThumbnail: boolean;
   /** `null` when no PDF source is attached - video-optional content. */
   pdfFilename: string | null;
-  onUploadPdf: (file: File) => void;
   onRemovePdf: () => void;
   uploadingPdf: boolean;
-  pdfError: string | null;
   sourceDocuments: SourceDocument[];
   onUploadDocument: (file: File) => void;
   onAddTextSource: (label: string, text: string) => Promise<boolean>;
@@ -157,7 +153,7 @@ export function Step2VideoTranscript({
         </ol>
       </div>
 
-      <div className="grid gap-4 rounded-2xl border border-line bg-bg p-4 sm:grid-cols-2">
+      <div className="grid gap-4 rounded-2xl border border-line bg-bg p-4">
         <div className="grid content-start gap-2 rounded-xl border border-line bg-card p-3.5">
           <b className="text-sm text-ink">Upload a lesson video</b>
           <p className="m-0 text-xs leading-relaxed text-muted">Students can watch it in the lesson. We first use embedded captions, then local speech recognition if needed.</p>
@@ -171,18 +167,6 @@ export function Step2VideoTranscript({
           {videoError && <p role="alert" className="m-0 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">{videoError}</p>}
         </div>
 
-        <div className="grid content-start gap-2 rounded-xl border border-line bg-card p-3.5">
-          <b className="text-sm text-ink">Upload supporting PDF</b>
-          <p className="m-0 text-xs leading-relaxed text-muted">Add notes, a workbook, or slides. Its text will be kept as a separate named source.</p>
-          <label className={`relative mt-1 inline-flex min-h-11 w-fit items-center rounded-[9px] border border-line bg-card px-3.5 py-2 text-sm font-bold text-ink hover:bg-bg ${isApproved ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
-            {uploadingPdf ? t("builder.uploading") : pdfFilename ? t("builder.replacePdf") : t("builder.uploadPdf")}
-            <input type="file" accept="application/pdf" disabled={isApproved || uploadingPdf}
-              onChange={e => { const file = e.target.files?.[0]; if (file) onUploadPdf(file); e.target.value = ""; }}
-              className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed" />
-          </label>
-          {pdfFilename && <div className="flex min-w-0 items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate" title={pdfFilename}>📄 {pdfFilename}</span><button type="button" onClick={onRemovePdf} disabled={isApproved || uploadingPdf} className="text-xs font-bold text-brand-coral disabled:opacity-40">{t("builder.removePdf")}</button></div>}
-          {pdfError && <p role="alert" className="m-0 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">{pdfError}</p>}
-        </div>
       </div>
 
       <div className="mt-4 grid gap-3 rounded-2xl border border-line bg-card p-4">
@@ -199,10 +183,15 @@ export function Step2VideoTranscript({
           </label>
           <span className="text-xs text-muted">Maximum 20 MB each</span>
         </div>
-        {sourceDocuments.length > 0 && <ul className="m-0 grid list-none gap-2 p-0">
+        {(pdfFilename || sourceDocuments.length > 0) && <ul className="m-0 grid list-none gap-2 p-0">
+          {pdfFilename && <li className="flex min-w-0 items-center gap-2 rounded-lg border border-line bg-bg px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1 truncate" title={pdfFilename}>📄 {pdfFilename}</span>
+            <span className="hidden text-xs text-muted sm:inline">Existing PDF source</span>
+            <button type="button" disabled={isApproved || uploadingPdf} onClick={onRemovePdf} className="text-xs font-bold text-brand-coral disabled:opacity-40">Remove</button>
+          </li>}
           {sourceDocuments.map((document, index) => <li key={`${document.added_at}-${index}`} className="flex min-w-0 items-center gap-2 rounded-lg border border-line bg-bg px-3 py-2 text-sm">
             <span className="min-w-0 flex-1 truncate" title={document.label}>{document.kind === "text" ? "📝" : "📄"} {document.label}</span>
-            <span className="hidden text-xs text-muted sm:inline">Ready to review</span>
+            <span className="hidden text-xs text-muted sm:inline">Ready to extract</span>
             <button type="button" disabled={isApproved || uploadingDocument} onClick={() => onRemoveDocument(index)} className="text-xs font-bold text-brand-coral disabled:opacity-40">Remove</button>
           </li>)}
         </ul>}
@@ -234,42 +223,6 @@ export function Step2VideoTranscript({
             className="min-h-11 w-full min-w-0 flex-1 border-0 px-3 py-2.5 text-sm text-ink disabled:cursor-not-allowed"
           />
         </div>
-      </div>
-
-      <div className="hidden mt-4 grid gap-1.5">
-        <span className="text-sm font-bold text-ink">{t("builder.pdfSource")}</span>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className={`relative inline-flex min-h-11 w-fit items-center rounded-[9px] border border-line bg-card px-3.5 py-2 text-sm font-bold text-ink hover:bg-bg focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand-blue ${isApproved ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
-            {uploadingPdf ? t("builder.uploading") : pdfFilename ? t("builder.replacePdf") : t("builder.uploadPdf")}
-            <input
-              type="file"
-              accept="application/pdf"
-              disabled={isApproved || uploadingPdf}
-              onChange={e => {
-                const file = e.target.files?.[0];
-                if (file) onUploadPdf(file);
-                e.target.value = "";
-              }}
-              aria-label={t("builder.uploadPdf")}
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-            />
-          </label>
-          {pdfFilename && (
-            <>
-              <span className="min-w-0 truncate text-sm text-muted" title={pdfFilename}>
-                📄 {pdfFilename}
-              </span>
-              <button type="button" onClick={onRemovePdf} disabled={isApproved || uploadingPdf} className="text-xs font-bold text-brand-coral disabled:opacity-40">
-                {t("builder.removePdf")}
-              </button>
-            </>
-          )}
-        </div>
-        {pdfError && (
-          <p role="alert" className="m-0 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">
-            {pdfError}
-          </p>
-        )}
       </div>
 
       <button

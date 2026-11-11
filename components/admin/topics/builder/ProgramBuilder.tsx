@@ -129,7 +129,6 @@ export function ProgramBuilder({
   const [regeneratingContent, setRegeneratingContent] = useState(false);
   const [pdfFilename, setPdfFilename] = useState<string | null>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
-  const [pdfError, setPdfError] = useState<string | null>(null);
   const [uploadingDocument, setUploadingDocument] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [uploadedVideoFilename, setUploadedVideoFilename] = useState<string | null>(null);
@@ -481,41 +480,15 @@ export function ProgramBuilder({
     }
   };
 
-  const handleUploadPdf = async (file: File) => {
-    if (!topicId) return;
-    setUploadingPdf(true);
-    setPdfError(null);
-    try {
-      const updated = await topicsApi.uploadPdf(topicId, file);
-      setPdfFilename(updated.pdf_filename);
-      // Uploading always resets the topic to `queued` server-side (a new
-      // source invalidates any prior transcript draft) - a teacher should
-      // never have to separately click "Generate Transcript" to move past
-      // that. Mirror the manual button's own flow: kick off generation
-      // immediately and surface the same "processing"/review UI it already
-      // drives, instead of leaving an approval action unreachable behind a
-      // state name nobody but this codebase knows.
-      setTranscriptState(updated.transcript_state);
-      setTranscriptSource(updated.transcript_source);
-      await startTranscriptGeneration();
-      onSaved();
-    } catch (err) {
-      setPdfError(err instanceof ApiError ? err.message : t("builderErrors.pdfUploadFailed"));
-    } finally {
-      setUploadingPdf(false);
-    }
-  };
-
   const handleRemovePdf = async () => {
     if (!topicId) return;
     setUploadingPdf(true);
-    setPdfError(null);
     try {
       await topicsApi.removePdf(topicId);
       setPdfFilename(null);
       onSaved();
     } catch (err) {
-      setPdfError(err instanceof ApiError ? err.message : t("builderErrors.pdfRemoveFailed"));
+      setDocumentError(err instanceof ApiError ? err.message : "We couldn't remove that source. Please try again.");
     } finally {
       setUploadingPdf(false);
     }
@@ -785,10 +758,8 @@ export function ProgramBuilder({
                 onRemoveThumbnail={handleRemoveThumbnail}
                 uploadingThumbnail={uploadingThumbnail}
                 pdfFilename={pdfFilename}
-                onUploadPdf={handleUploadPdf}
                 onRemovePdf={handleRemovePdf}
                 uploadingPdf={uploadingPdf}
-                pdfError={pdfError}
                 sourceDocuments={loadedTopic?.source_documents ?? []}
                 onUploadDocument={handleUploadDocument}
                 onAddTextSource={handleAddTextSource}
