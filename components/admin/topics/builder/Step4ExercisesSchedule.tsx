@@ -7,16 +7,21 @@ import { topicsApi, ApiError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { insertLessonBlock, moveLessonBlock } from "@/lib/lessonBuilder/order";
 
-const SKILL_KINDS = ["video", "vocab", "image_completion", "listening", "grammar", "reading", "writing", "speaking", "game", "series", "word_order"] as const;
+const SKILL_KINDS = ["video", "vocab", "image_completion", "listening", "grammar", "reading", "writing", "speaking", "game", "series", "word_order", "error_correction", "dialogue_completion"] as const;
 const ANSWER_KINDS = new Set<LessonExercise["kind"]>(["multiple_choice", "image_completion", "listening", "grammar", "reading"]);
-const AI_KINDS = new Set<LessonExercise["kind"]>(["multiple_choice", "reflection", "listening", "grammar", "reading", "writing", "speaking", "game", "series", "word_order"]);
+const AI_KINDS = new Set<LessonExercise["kind"]>(["multiple_choice", "reflection", "listening", "grammar", "reading", "writing", "speaking", "game", "series", "word_order", "error_correction", "dialogue_completion"]);
 
 function newExercise(kind: LessonExercise["kind"]): LessonExercise {
   return {
-    kind, prompt: kind === "video" ? "Watch the lesson video." : kind === "vocab" ? "Learn the key words." : kind === "speaking" ? "Practice speaking with Mariam using this lesson." : kind === "word_order" ? "Put the words in the correct order." : "",
+    kind, prompt: kind === "video" ? "Watch the lesson video." : kind === "vocab" ? "Learn the key words." : kind === "speaking" ? "Practice speaking with Mariam using this lesson." : kind === "word_order" ? "Put the words in the correct order." : kind === "error_correction" ? "Find and fix the mistake." : kind === "dialogue_completion" ? "Complete the dialogue." : "",
     options: ANSWER_KINDS.has(kind) ? ["", ""] : [], correct_option: ANSWER_KINDS.has(kind) ? 0 : null,
     explanation: "", content: "", arabic_note: "", media_url: "", audio_url: "", pairs: kind === "game" ? [{ left: "", right: "" }, { left: "", right: "" }] : [],
     ordering_words: kind === "word_order" ? ["", "", ""] : [],
+    accepted_answers: kind === "error_correction" ? [""] : [],
+    dialogue_turns: kind === "dialogue_completion" ? [
+      { speaker: "A", text: "", is_blank: false, accepted_answers: [] },
+      { speaker: "B", text: "", is_blank: true, accepted_answers: [""] },
+    ] : [],
     min_words: kind === "writing" ? 20 : 0, allow_resubmit: true, deadline_at: null,
   };
 }
@@ -157,8 +162,8 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
         <p className="px-1 text-xs text-muted">{t("builder.dragHint")}</p>
         <div className="mt-3 grid grid-cols-2 gap-2 lg:max-h-[70vh] lg:overflow-y-auto">
           {SKILL_KINDS.map(kind => {
-            const labels = { video: t("builder.skillVideo"), vocab: t("builder.skillVocab"), image_completion: t("builder.skillImages"), listening: t("builder.skillListening"), grammar: t("builder.skillGrammar"), reading: t("builder.skillReading"), writing: t("builder.skillWriting"), speaking: t("builder.skillSpeaking"), game: t("builder.skillGame"), series: t("builder.skillSeries"), word_order: t("builder.skillWordOrder") };
-            const notes = { video: t("builder.skillVideoDesc"), vocab: t("builder.skillVocabDesc"), image_completion: t("builder.skillImagesDesc"), listening: t("builder.skillListeningDesc"), grammar: t("builder.skillGrammarDesc"), reading: t("builder.skillReadingDesc"), writing: t("builder.skillWritingDesc"), speaking: t("builder.skillSpeakingDesc"), game: t("builder.skillGameDesc"), series: t("builder.skillSeriesDesc"), word_order: t("builder.skillWordOrderDesc") };
+            const labels = { video: t("builder.skillVideo"), vocab: t("builder.skillVocab"), image_completion: t("builder.skillImages"), listening: t("builder.skillListening"), grammar: t("builder.skillGrammar"), reading: t("builder.skillReading"), writing: t("builder.skillWriting"), speaking: t("builder.skillSpeaking"), game: t("builder.skillGame"), series: t("builder.skillSeries"), word_order: t("builder.skillWordOrder"), error_correction: t("builder.skillErrorCorrection"), dialogue_completion: t("builder.skillDialogue") };
+            const notes = { video: t("builder.skillVideoDesc"), vocab: t("builder.skillVocabDesc"), image_completion: t("builder.skillImagesDesc"), listening: t("builder.skillListeningDesc"), grammar: t("builder.skillGrammarDesc"), reading: t("builder.skillReadingDesc"), writing: t("builder.skillWritingDesc"), speaking: t("builder.skillSpeakingDesc"), game: t("builder.skillGameDesc"), series: t("builder.skillSeriesDesc"), word_order: t("builder.skillWordOrderDesc"), error_correction: t("builder.skillErrorCorrectionDesc"), dialogue_completion: t("builder.skillDialogueDesc") };
             return <PaletteCard key={kind} kind={kind} label={labels[kind]} note={notes[kind]} disabled={kind === "video" && !hasVideo || kind === "vocab" && !hasVocabulary} onAdd={() => { onExercisesChange([...exercises, newExercise(kind)]); setExpandedIndex(null); }} />;
           })}
         </div>
@@ -209,6 +214,8 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
                 {item.options.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.options.join(" · ")} · {t("builder.correctAnswer")}: {item.options[item.correct_option ?? 0]}</span>}
                 {item.pairs.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.pairs.map(pair => `${pair.left} → ${pair.right}`).join(" · ")}</span>}
                 {item.ordering_words.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.ordering_words.join(" ")}</span>}
+                {item.accepted_answers.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.content} → {item.accepted_answers.join(" / ")}</span>}
+                {item.dialogue_turns.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.dialogue_turns.map(turn => turn.is_blank ? `${turn.speaker}: ___ (${turn.accepted_answers.join(" / ")})` : `${turn.speaker}: ${turn.text}`).join(" · ")}</span>}
               </li>)}</ol>
               <div className="mt-3 flex gap-2"><button type="button" onClick={onAcceptSuggestions} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">{t("builder.aiUseSuggestions")}</button><button type="button" onClick={onDiscardSuggestions} className="min-h-11 rounded-lg border border-line px-4 text-sm">{t("builder.aiDiscard")}</button></div>
             </div>}
@@ -226,8 +233,8 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
             {exercise.audio_url && <audio src={exercise.audio_url} controls className="mt-2 w-full" />}
           </label>}
           {uploadError && <p role="alert" className="mt-2 text-sm text-brand-coral">{uploadError}</p>}
-          {(["listening", "grammar", "reading", "series"] as LessonExercise["kind"][]).includes(exercise.kind) && <label className="mt-3 block text-sm font-semibold">{exercise.kind === "listening" ? t("builder.listeningScript") : exercise.kind === "grammar" ? t("builder.grammarRule") : exercise.kind === "series" ? t("builder.episodeText") : t("builder.readingPassage")}
-            <textarea value={exercise.content} maxLength={5000} onChange={event => update(index, { content: event.target.value })} rows={4} className="mt-1 block w-full rounded-lg border border-line bg-bg p-3 font-normal" />
+          {(["listening", "grammar", "reading", "series", "error_correction"] as LessonExercise["kind"][]).includes(exercise.kind) && <label className="mt-3 block text-sm font-semibold">{exercise.kind === "listening" ? t("builder.listeningScript") : exercise.kind === "grammar" ? t("builder.grammarRule") : exercise.kind === "series" ? t("builder.episodeText") : exercise.kind === "error_correction" ? t("builder.incorrectSentence") : t("builder.readingPassage")}
+            <textarea value={exercise.content} maxLength={5000} onChange={event => update(index, { content: event.target.value })} rows={exercise.kind === "error_correction" ? 2 : 4} className="mt-1 block w-full rounded-lg border border-line bg-bg p-3 font-normal" />
           </label>}
           {exercise.kind === "grammar" && <label className="mt-3 block text-sm font-semibold">{t("builder.arabicNote")}
             <textarea dir="rtl" value={exercise.arabic_note} maxLength={1000} onChange={event => update(index, { arabic_note: event.target.value })} rows={2} className="mt-1 block w-full rounded-lg border border-line bg-bg p-3 font-normal" />
@@ -235,7 +242,44 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
           {exercise.kind === "writing" && <label className="mt-3 block text-sm font-semibold">{t("builder.minimumWords")}
             <input type="number" min={0} max={500} value={exercise.min_words} onChange={event => update(index, { min_words: Number(event.target.value) })} className="mt-1 block min-h-11 w-28 rounded-lg border border-line bg-bg px-3 font-normal" />
           </label>}
-          {([...ANSWER_KINDS, "writing", "game", "series", "word_order"] as LessonExercise["kind"][]).includes(exercise.kind) && <fieldset className="mt-4 rounded-xl border border-line bg-bg p-3">
+          {exercise.kind === "error_correction" && <div className="mt-3 space-y-2">
+            <p className="text-sm font-semibold">{t("builder.acceptedAnswersLabel")}</p>
+            <p className="text-xs text-muted">{t("builder.acceptedAnswersHint")}</p>
+            {exercise.accepted_answers.map((answer, answerIndex) => <div key={answerIndex} className="flex items-center gap-2">
+              <input value={answer} maxLength={500} onChange={event => update(index, { accepted_answers: exercise.accepted_answers.map((item, i) => i === answerIndex ? event.target.value : item) })} placeholder={t("builder.acceptedAnswerPlaceholder")} className="min-h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-sm" />
+              {exercise.accepted_answers.length > 1 && <button type="button" onClick={() => update(index, { accepted_answers: exercise.accepted_answers.filter((_, i) => i !== answerIndex) })} className="min-h-11 min-w-11 rounded-lg border border-line" aria-label={t("builder.removeAcceptedAnswer")}>×</button>}
+            </div>)}
+            {exercise.accepted_answers.length < 10 && <button type="button" onClick={() => update(index, { accepted_answers: [...exercise.accepted_answers, ""] })} className="min-h-11 text-sm font-bold text-brand-blue">{t("builder.addAcceptedAnswer")}</button>}
+            <label className="mt-2 block text-sm font-semibold">{t("builder.explanation")}
+              <input value={exercise.explanation} maxLength={500} onChange={event => update(index, { explanation: event.target.value })} className="mt-1 block min-h-11 w-full rounded-lg border border-line bg-bg px-3 font-normal" />
+            </label>
+          </div>}
+          {exercise.kind === "dialogue_completion" && <div className="mt-3 space-y-2">
+            <p className="text-sm font-semibold">{t("builder.dialogueTurnsLabel")}</p>
+            <p className="text-xs text-muted">{t("builder.dialogueTurnsHint")}</p>
+            {exercise.dialogue_turns.map((turn, turnIndex) => <div key={turnIndex} className="rounded-lg border border-line bg-card p-2.5">
+              <div className="grid grid-cols-[1fr_2fr] gap-2">
+                <input value={turn.speaker} maxLength={100} onChange={event => update(index, { dialogue_turns: exercise.dialogue_turns.map((item, i) => i === turnIndex ? { ...item, speaker: event.target.value } : item) })} placeholder={t("builder.speakerPlaceholder")} className="min-h-11 min-w-0 rounded-lg border border-line bg-bg px-3 text-sm" />
+                <label className="flex min-h-11 items-center gap-2 text-sm">
+                  <input type="checkbox" checked={turn.is_blank} onChange={event => update(index, { dialogue_turns: exercise.dialogue_turns.map((item, i) => i === turnIndex ? { ...item, is_blank: event.target.checked, text: event.target.checked ? "" : item.text, accepted_answers: event.target.checked ? (item.accepted_answers.length ? item.accepted_answers : [""]) : [] } : item) })} className="size-4 accent-brand-blue" /> {t("builder.isBlankTurn")}
+                </label>
+              </div>
+              {!turn.is_blank ? (
+                <input value={turn.text} maxLength={500} onChange={event => update(index, { dialogue_turns: exercise.dialogue_turns.map((item, i) => i === turnIndex ? { ...item, text: event.target.value } : item) })} placeholder={t("builder.turnTextPlaceholder")} className="mt-2 min-h-11 w-full rounded-lg border border-line bg-bg px-3 text-sm" />
+              ) : (
+                <div className="mt-2 space-y-1.5">
+                  {turn.accepted_answers.map((answer, answerIndex) => <div key={answerIndex} className="flex items-center gap-2">
+                    <input value={answer} maxLength={500} onChange={event => update(index, { dialogue_turns: exercise.dialogue_turns.map((item, i) => i === turnIndex ? { ...item, accepted_answers: item.accepted_answers.map((a, ai) => ai === answerIndex ? event.target.value : a) } : item) })} placeholder={t("builder.acceptedAnswerPlaceholder")} className="min-h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-sm" />
+                    {turn.accepted_answers.length > 1 && <button type="button" onClick={() => update(index, { dialogue_turns: exercise.dialogue_turns.map((item, i) => i === turnIndex ? { ...item, accepted_answers: item.accepted_answers.filter((_, ai) => ai !== answerIndex) } : item) })} className="min-h-11 min-w-11 rounded-lg border border-line" aria-label={t("builder.removeAcceptedAnswer")}>×</button>}
+                  </div>)}
+                  {turn.accepted_answers.length < 5 && <button type="button" onClick={() => update(index, { dialogue_turns: exercise.dialogue_turns.map((item, i) => i === turnIndex ? { ...item, accepted_answers: [...item.accepted_answers, ""] } : item) })} className="text-xs font-bold text-brand-blue">{t("builder.addAcceptedAnswer")}</button>}
+                </div>
+              )}
+              {exercise.dialogue_turns.length > 2 && <button type="button" onClick={() => update(index, { dialogue_turns: exercise.dialogue_turns.filter((_, i) => i !== turnIndex) })} className="mt-2 text-xs font-bold text-brand-coral">{t("builder.removeTurn")}</button>}
+            </div>)}
+            {exercise.dialogue_turns.length < 20 && <button type="button" onClick={() => update(index, { dialogue_turns: [...exercise.dialogue_turns, { speaker: exercise.dialogue_turns[exercise.dialogue_turns.length - 1]?.speaker === "A" ? "B" : "A", text: "", is_blank: false, accepted_answers: [] }] })} className="min-h-11 text-sm font-bold text-brand-blue">{t("builder.addTurn")}</button>}
+          </div>}
+          {([...ANSWER_KINDS, "writing", "game", "series", "word_order", "error_correction", "dialogue_completion"] as LessonExercise["kind"][]).includes(exercise.kind) && <fieldset className="mt-4 rounded-xl border border-line bg-bg p-3">
             <legend className="px-1 text-sm font-bold text-ink">Student submission</legend>
             <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={exercise.allow_resubmit} onChange={event => update(index, { allow_resubmit: event.target.checked })} className="size-4 accent-brand-blue" /> Students can edit and submit again</label>
             <label className="mt-2 flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={!!exercise.deadline_at} onChange={event => update(index, { deadline_at: event.target.checked ? new Date(Date.now() + 7 * 86400000).toISOString() : null })} className="size-4 accent-brand-blue" /> Set a deadline</label>

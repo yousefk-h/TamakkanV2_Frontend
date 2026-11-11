@@ -332,7 +332,7 @@ export interface ExerciseAttemptHistoryItem {
   exercise_index: number;
   exercise_kind: LessonExercise["kind"];
   exercise_prompt: string;
-  answer: number | string | number[];
+  answer: number | string | number[] | string[];
   answer_display: string;
   correct: boolean | null;
   correct_option: number | null;
@@ -626,8 +626,16 @@ export interface PracticeScheduleBlock {
   activity: string;
 }
 
+export interface DialogueTurn {
+  speaker: string;
+  text: string;
+  is_blank: boolean;
+  /** Empty for a Student (answer key) - populated only for a teacher/admin. */
+  accepted_answers: string[];
+}
+
 export interface LessonExercise {
-  kind: "video" | "vocab" | "image_completion" | "listening" | "grammar" | "reading" | "writing" | "speaking" | "game" | "series" | "multiple_choice" | "reflection" | "word_order";
+  kind: "video" | "vocab" | "image_completion" | "listening" | "grammar" | "reading" | "writing" | "speaking" | "game" | "series" | "multiple_choice" | "reflection" | "word_order" | "error_correction" | "dialogue_completion";
   prompt: string;
   options: string[];
   correct_option: number | null;
@@ -640,6 +648,11 @@ export interface LessonExercise {
   /** Sentence Building / Word Ordering: the target sentence's words, in
    * their CORRECT order. The student player shuffles them for display. */
   ordering_words: string[];
+  /** Error Correction: acceptable corrected versions of `content` (the
+   * incorrect sentence). Empty for a Student (answer key). */
+  accepted_answers: string[];
+  /** Dialogue Completion: the dialogue, in order. */
+  dialogue_turns: DialogueTurn[];
   min_words: number;
   allow_resubmit: boolean;
   /** ISO timestamp in UTC; null means this activity has no deadline. */
@@ -655,7 +668,7 @@ export interface ExerciseAttemptPublic extends BaseSchema {
   exercise_index: number;
   exercise_kind: LessonExercise["kind"];
   exercise_prompt: string;
-  answer: number | string | number[];
+  answer: number | string | number[] | string[];
   answer_display: string;
   correct: boolean | null;
   correct_option: number | null;
@@ -669,7 +682,7 @@ export interface ExerciseAttemptCreateRequest {
   topic_id: string;
   exercise_index: number;
   topic_updated_at: string;
-  answer: number | string | number[];
+  answer: number | string | number[] | string[];
   /** Required only if you have more than one active enrollment. */
   enrollment_id?: string;
 }

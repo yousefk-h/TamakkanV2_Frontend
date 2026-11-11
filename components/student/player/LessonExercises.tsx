@@ -9,22 +9,30 @@ import { useI18n } from "@/lib/i18n/LocaleProvider";
 
 const ANSWER_KINDS = new Set(["multiple_choice", "image_completion", "listening", "grammar", "reading"]);
 
-/** Deterministic per-exercise shuffle (Fisher-Yates with a small seeded
- * PRNG) rather than `Math.random()` - the same exercise must show the same
- * scrambled order across a re-render within one visit, and a real shuffle
- * (not just a reversal) gives a harder, more useful activity. */
-function shuffledIndices(count: number, seed: number): number[] {
-  const order = Array.from({ length: count }, (_, i) => i);
-  let state = seed || 1;
-  const next = () => { state = (state * 1103515245 + 12345) & 0x7fffffff; return state; };
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = next() % (i + 1);
-    [order[i], order[j]] = [order[j], order[i]];
+/** Word Order's `ordering_words` arrives from the server ALREADY scrambled
+ * into its presentation order - the server deliberately never sends the
+ * true correct order to a Student (see `app.schema.topic
+ * .mask_exercises_for_student`), so there is nothing left to shuffle here
+ * and no reason to. A fresh identity-order pool (positions 0..n-1 into the
+ * received array) is simply "every word, not yet placed". */
+function freshOrderPool(count: number): number[] {
+  return Array.from({ length: count }, (_, i) => i);
+}
+
+/** Reconstructs which positions (in the received, already-shuffled
+ * `ordering_words`) correspond to a previously-submitted word-string answer
+ * - consuming one matching position per submitted word so a repeated word
+ * reconstructs correctly instead of all pointing at the same position. */
+function positionsForSubmittedWords(displayedWords: string[], submittedWords: string[]): number[] {
+  const remaining = displayedWords.map((word, position) => ({ word, position }));
+  const positions: number[] = [];
+  for (const word of submittedWords) {
+    const matchIndex = remaining.findIndex(entry => entry.word === word);
+    if (matchIndex === -1) continue; // stale/edited exercise - best effort, never throws
+    positions.push(remaining[matchIndex].position);
+    remaining.splice(matchIndex, 1);
   }
-  // A shuffle that happens to land on the already-correct order teaches
-  // nothing - force at least one swap away from it when there's room to.
-  if (count > 1 && order.every((value, i) => value === i)) [order[0], order[1]] = [order[1], order[0]];
-  return order;
+  return positions;
 }
 
 function ExerciseImage({ src, alt }: { src: string; alt: string }) {
@@ -43,7 +51,12 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
   const [choices, setChoices] = useState<Record<number, number>>({});
   const [checked, setChecked] = useState<Record<number, boolean>>({});
   const [responses, setResponses] = useState<Record<number, string>>({});
-  const [matches, setMatches] = useState<Record<number, Record<number, number>>>({});
+  // Matching game: matches[exerciseIndex][leftPosition] = the chosen right-
+  // side TEXT (never an index - see submit()'s own note on why).
+  const [matches, setMatches] = useState<Record<number, Record<number, string>>>({});
+  // Dialogue Completion: dialogueAnswers[exerciseIndex][blankPosition] = the
+  // student's typed answer for that blank turn, in blank order.
+  const [dialogueAnswers, setDialogueAnswers] = useState<Record<number, Record<number, string>>>({});
   // Word Order: `orderPool[index]` is the remaining shuffled word indices
   // (not yet placed), `orderChosen[index]` is the indices the student has
   // picked so far, in the order picked - submitted verbatim as the answer.
@@ -63,13 +76,14 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
     setAttempts({});
     setErrors({});
     setLoadError(false);
-    // Word Order exercises always start shuffled (not yet attempted) -
-    // overwritten below for any index that already has a saved attempt.
+    // Word Order exercises always start with every (already-scrambled) word
+    // in the pool, none placed - overwritten below for any index that
+    // already has a saved attempt.
     const freshPool: Record<number, number[]> = {};
     const freshChosen: Record<number, number[]> = {};
     topic.lesson_exercises.forEach((exercise, index) => {
       if (exercise.kind === "word_order") {
-        freshPool[index] = shuffledIndices(exercise.ordering_words.length, index + 1);
+        freshPool[index] = freshOrderPool(exercise.ordering_words.length);
         freshChosen[index] = [];
       }
     });
@@ -82,12 +96,23 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
       setChoices(Object.fromEntries(items.filter(item => typeof item.answer === "number").map(item => [item.exercise_index, item.answer as number])));
       setResponses(Object.fromEntries(items.filter(item => typeof item.answer === "string").map(item => [item.exercise_index, item.answer as string])));
       const gameMatches = items.filter(item => Array.isArray(item.answer) && topic.lesson_exercises[item.exercise_index]?.kind === "game");
-      setMatches(Object.fromEntries(gameMatches.map(item => [item.exercise_index, Object.fromEntries((item.answer as number[]).map((value, index) => [index, value]))])));
+      setMatches(Object.fromEntries(gameMatches.map(item => [item.exercise_index, Object.fromEntries((item.answer as string[]).map((value, index) => [index, value]))])));
       const orderAttempts = items.filter(item => Array.isArray(item.answer) && topic.lesson_exercises[item.exercise_index]?.kind === "word_order");
       if (orderAttempts.length) {
-        setOrderChosen(current => ({ ...current, ...Object.fromEntries(orderAttempts.map(item => [item.exercise_index, item.answer as number[]])) }));
+        setOrderChosen(current => ({
+          ...current,
+          ...Object.fromEntries(orderAttempts.map(item => [
+            item.exercise_index,
+            positionsForSubmittedWords(topic.lesson_exercises[item.exercise_index].ordering_words, item.answer as string[]),
+          ])),
+        }));
         setOrderPool(current => ({ ...current, ...Object.fromEntries(orderAttempts.map(item => [item.exercise_index, []])) }));
       }
+      const dialogueAttempts = items.filter(item => Array.isArray(item.answer) && topic.lesson_exercises[item.exercise_index]?.kind === "dialogue_completion");
+      setDialogueAnswers(current => ({
+        ...current,
+        ...Object.fromEntries(dialogueAttempts.map(item => [item.exercise_index, Object.fromEntries((item.answer as string[]).map((value, i) => [i, value]))])),
+      }));
     }).catch(() => { if (active) setLoadError(true); });
     return () => { active = false; };
     // topic.lesson_exercises is intentionally excluded - this effect already
@@ -95,7 +120,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
     // (and therefore new exercises) actually changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic.id, topic.updated_at, enrollmentId]);
-  const submit = async (index: number, answer: number | string | number[]) => {
+  const submit = async (index: number, answer: number | string | number[] | string[]) => {
     setBusyIndex(index);
     setErrors(current => ({ ...current, [index]: "" }));
     try {
@@ -113,7 +138,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
     setAttempts(current => { const next = { ...current }; delete next[index]; return next; });
     const exercise = topic.lesson_exercises[index];
     if (exercise?.kind === "word_order") {
-      setOrderPool(current => ({ ...current, [index]: shuffledIndices(exercise.ordering_words.length, index + 1 + Date.now() % 1000) }));
+      setOrderPool(current => ({ ...current, [index]: freshOrderPool(exercise.ordering_words.length) }));
       setOrderChosen(current => ({ ...current, [index]: [] }));
     }
   };
@@ -172,11 +197,11 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
       {exercise.kind === "game" && <div className="space-y-2">
         {exercise.pairs.map((pair, pairIndex) => <div key={pairIndex} className="flex items-center gap-2 rounded-lg border border-line bg-card p-2 text-sm">
           <b className="min-w-0 flex-1">{pair.left}</b><span aria-hidden="true">→</span>
-          <select value={matches[index]?.[pairIndex] ?? ""} disabled={!!checked[index]} onChange={event => setMatches(current => ({ ...current, [index]: { ...current[index], [pairIndex]: Number(event.target.value) } }))} aria-label={`${t("player.matchFor")} ${pair.left}`} className="min-h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-2">
-            <option value="">{t("player.chooseMatch")}</option>{exercise.pairs.map((_, reversedIndex) => { const originalIndex = exercise.pairs.length - 1 - reversedIndex; return <option key={originalIndex} value={originalIndex}>{exercise.pairs[originalIndex].right}</option>; })}
+          <select value={matches[index]?.[pairIndex] ?? ""} disabled={!!checked[index]} onChange={event => setMatches(current => ({ ...current, [index]: { ...current[index], [pairIndex]: event.target.value } }))} aria-label={`${t("player.matchFor")} ${pair.left}`} className="min-h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-2">
+            <option value="">{t("player.chooseMatch")}</option>{[...exercise.pairs].reverse().map((reversedPair, reversedIndex) => <option key={reversedIndex} value={reversedPair.right}>{reversedPair.right}</option>)}
           </select>
         </div>)}
-        {!checked[index] ? <button type="button" disabled={submissionLocked || busyIndex === index || exercise.pairs.some((_, i) => matches[index]?.[i] === undefined)} onClick={() => void submit(index, exercise.pairs.map((_, i) => matches[index][i]))} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button> : <div role="status" className="text-sm font-semibold"><p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.tryAgainNextTime")}</p>{!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}</div>}
+        {!checked[index] ? <button type="button" disabled={submissionLocked || busyIndex === index || exercise.pairs.some((_, i) => !matches[index]?.[i])} onClick={() => void submit(index, exercise.pairs.map((_, i) => matches[index][i]))} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button> : <div role="status" className="text-sm font-semibold"><p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.tryAgainNextTime")}</p>{!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}</div>}
       </div>}
 
       {exercise.kind === "word_order" && <div className="space-y-3">
@@ -203,12 +228,59 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
         </div>}
         {!checked[index] ? (
           <button type="button" disabled={submissionLocked || busyIndex === index || (orderPool[index] ?? []).length > 0 || (orderChosen[index] ?? []).length === 0}
-            onClick={() => void submit(index, orderChosen[index] ?? [])}
+            onClick={() => void submit(index, (orderChosen[index] ?? []).map(position => exercise.ordering_words[position]))}
             className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40"
           >{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button>
         ) : (
           <div role="status" className="text-sm font-semibold">
             <p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.wordOrderCorrectWas", { sentence: exercise.ordering_words.join(" ") })}</p>
+            {!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}
+          </div>
+        )}
+      </div>}
+
+      {exercise.kind === "error_correction" && <div className="space-y-3">
+        <p className="whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 text-sm italic text-ink">{exercise.content}</p>
+        <label className="block text-sm text-muted">{t("player.yourCorrection")}
+          <input value={responses[index] ?? ""} maxLength={500} disabled={!!checked[index] || submissionLocked} onChange={event => setResponses(current => ({ ...current, [index]: event.target.value }))} className="mt-2 block min-h-11 w-full rounded-lg border border-line bg-card p-3 text-ink" />
+        </label>
+        {!checked[index] ? (
+          <button type="button" disabled={submissionLocked || busyIndex === index || !(responses[index] ?? "").trim()} onClick={() => void submit(index, (responses[index] ?? "").trim())} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button>
+        ) : (
+          <div role="status" className="text-sm font-semibold">
+            <p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.tryAgainNextTime")}{exercise.explanation ? ` — ${exercise.explanation}` : ""}</p>
+            {!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}
+          </div>
+        )}
+      </div>}
+
+      {exercise.kind === "dialogue_completion" && <div className="space-y-2.5">
+        {exercise.dialogue_turns.map((turn, turnIndex) => {
+          const blankPosition = exercise.dialogue_turns.slice(0, turnIndex).filter(t2 => t2.is_blank).length;
+          return <div key={turnIndex} className="flex items-start gap-2">
+            <b className="w-20 shrink-0 text-xs font-bold text-brand-blue">{turn.speaker}</b>
+            {!turn.is_blank ? (
+              <p className="m-0 flex-1 rounded-lg bg-bg px-3 py-2 text-sm text-ink">{turn.text}</p>
+            ) : (
+              <input
+                value={dialogueAnswers[index]?.[blankPosition] ?? ""}
+                disabled={!!checked[index] || submissionLocked}
+                onChange={event => setDialogueAnswers(current => ({ ...current, [index]: { ...current[index], [blankPosition]: event.target.value } }))}
+                placeholder={t("player.dialogueBlankPlaceholder")}
+                aria-label={`${t("player.dialogueBlankPlaceholder")} (${turn.speaker})`}
+                className="min-h-11 flex-1 rounded-lg border-2 border-dashed border-brand-blue bg-card px-3 text-sm text-ink"
+              />
+            )}
+          </div>;
+        })}
+        {!checked[index] ? (
+          <button type="button" disabled={submissionLocked || busyIndex === index || exercise.dialogue_turns.filter(t2 => t2.is_blank).some((_, i) => !(dialogueAnswers[index]?.[i] ?? "").trim())}
+            onClick={() => void submit(index, exercise.dialogue_turns.filter(t2 => t2.is_blank).map((_, i) => (dialogueAnswers[index]?.[i] ?? "").trim()))}
+            className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40"
+          >{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button>
+        ) : (
+          <div role="status" className="text-sm font-semibold">
+            <p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.dialoguePartialScore", { score: attempts[index]?.score ?? 0 })}</p>
             {!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}
           </div>
         )}
