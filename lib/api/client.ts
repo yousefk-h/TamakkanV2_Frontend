@@ -432,6 +432,16 @@ export const topicsApi = {
     form.append("file", file);
     return request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/pdf`, { method: "POST", form });
   },
+  /** Adds a source without replacing existing documents or pasted text. */
+  uploadDocument: (topicId: string, file: File | Blob) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/documents`, { method: "POST", form });
+  },
+  addTextSource: (topicId: string, body: { label: string; text: string }) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/text-source`, { method: "POST", json: body }),
+  removeDocument: (topicId: string, index: number) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/documents/${index}`, { method: "DELETE" }),
   uploadExerciseMedia: (topicId: string, file: File) => {
     const form = new FormData();
     form.append("file", file);

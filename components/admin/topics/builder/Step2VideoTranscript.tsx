@@ -1,4 +1,5 @@
-import type { ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState } from "@/lib/api/types";
+import { useState } from "react";
+import type { ReviewTranscriptEnglishResult, SourceDocument, TranscriptSource, TranscriptState } from "@/lib/api/types";
 import { TRANSCRIPT_STATE_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
@@ -46,6 +47,12 @@ export function Step2VideoTranscript({
   onRemovePdf,
   uploadingPdf,
   pdfError,
+  sourceDocuments,
+  onUploadDocument,
+  onAddTextSource,
+  onRemoveDocument,
+  uploadingDocument,
+  documentError,
   uploadedVideoFilename,
   onUploadVideo,
   onRemoveVideo,
@@ -79,6 +86,12 @@ export function Step2VideoTranscript({
   onRemovePdf: () => void;
   uploadingPdf: boolean;
   pdfError: string | null;
+  sourceDocuments: SourceDocument[];
+  onUploadDocument: (file: File) => void;
+  onAddTextSource: (label: string, text: string) => Promise<boolean>;
+  onRemoveDocument: (index: number) => void;
+  uploadingDocument: boolean;
+  documentError: string | null;
   uploadedVideoFilename: string | null;
   onUploadVideo: (file: File) => void;
   onRemoveVideo: () => void;
@@ -87,7 +100,9 @@ export function Step2VideoTranscript({
 }) {
   const { t } = useI18n();
   const isApproved = transcriptState === "approved_for_ai";
-  const hasSource = Boolean(youtubeUrl) || Boolean(pdfFilename) || Boolean(uploadedVideoFilename);
+  const hasSource = Boolean(youtubeUrl) || Boolean(pdfFilename) || Boolean(uploadedVideoFilename) || sourceDocuments.length > 0;
+  const [textLabel, setTextLabel] = useState("Pasted notes");
+  const [pastedText, setPastedText] = useState("");
   return (
     <section className="mx-auto max-w-[720px]">
       <div className="mb-6">
@@ -168,6 +183,39 @@ export function Step2VideoTranscript({
           {pdfFilename && <div className="flex min-w-0 items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate" title={pdfFilename}>📄 {pdfFilename}</span><button type="button" onClick={onRemovePdf} disabled={isApproved || uploadingPdf} className="text-xs font-bold text-brand-coral disabled:opacity-40">{t("builder.removePdf")}</button></div>}
           {pdfError && <p role="alert" className="m-0 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">{pdfError}</p>}
         </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 rounded-2xl border border-line bg-card p-4">
+        <div>
+          <b className="text-sm text-ink">Add documents or pasted text</b>
+          <p className="m-0 mt-1 text-xs leading-relaxed text-muted">Add as many PDF, Word, PowerPoint, or text sources as this lesson needs. They stay separate and are combined only for teacher review.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={`relative inline-flex min-h-11 items-center rounded-[9px] border border-line bg-bg px-3.5 py-2 text-sm font-bold text-ink hover:bg-card ${isApproved ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
+            {uploadingDocument ? "Reading document…" : "Upload PDF, Word or PowerPoint"}
+            <input type="file" accept="application/pdf,.pdf,.docx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation" disabled={isApproved || uploadingDocument}
+              onChange={e => { const file = e.target.files?.[0]; if (file) onUploadDocument(file); e.target.value = ""; }}
+              className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed" />
+          </label>
+          <span className="text-xs text-muted">Maximum 20 MB each</span>
+        </div>
+        {sourceDocuments.length > 0 && <ul className="m-0 grid list-none gap-2 p-0">
+          {sourceDocuments.map((document, index) => <li key={`${document.added_at}-${index}`} className="flex min-w-0 items-center gap-2 rounded-lg border border-line bg-bg px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1 truncate" title={document.label}>{document.kind === "text" ? "📝" : "📄"} {document.label}</span>
+            <span className="hidden text-xs text-muted sm:inline">Ready to review</span>
+            <button type="button" disabled={isApproved || uploadingDocument} onClick={() => onRemoveDocument(index)} className="text-xs font-bold text-brand-coral disabled:opacity-40">Remove</button>
+          </li>)}
+        </ul>}
+        <div className="grid gap-2 border-t border-line pt-3">
+          <label className="grid gap-1 text-xs font-bold text-ink">Source name
+            <input value={textLabel} onChange={e => setTextLabel(e.target.value)} disabled={isApproved || uploadingDocument} maxLength={200} className="min-h-10 rounded-lg border border-line bg-bg px-3 text-sm font-normal text-ink" />
+          </label>
+          <label className="grid gap-1 text-xs font-bold text-ink">Paste source text
+            <textarea value={pastedText} onChange={e => setPastedText(e.target.value)} disabled={isApproved || uploadingDocument} rows={4} placeholder="Paste lesson notes, a script, or a reading passage…" className="rounded-lg border border-line bg-bg px-3 py-2 text-sm font-normal text-ink" />
+          </label>
+          <button type="button" disabled={isApproved || uploadingDocument || !pastedText.trim()} onClick={async () => { if (await onAddTextSource(textLabel, pastedText)) setPastedText(""); }} className="w-fit rounded-[9px] border border-brand-blue px-3.5 py-2 text-sm font-bold text-brand-blue disabled:opacity-40">Add pasted text</button>
+        </div>
+        {documentError && <p role="alert" className="m-0 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">{documentError}</p>}
       </div>
 
       <div className="mt-4 grid gap-1.5 rounded-xl border border-line bg-card p-3.5">

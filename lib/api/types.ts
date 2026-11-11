@@ -395,6 +395,17 @@ export type TranscriptState = "queued" | "extracting" | "pending_review" | "appr
  * An AI-generated transcript can contain mishearings a real caption track
  * wouldn't, so the reviewing admin should know before approving it as-is. */
 export type TranscriptSource = "captions" | "ai_generated" | "local_asr" | "extracted_text" | "mixed";
+export type SourceDocumentKind = "pdf" | "docx" | "pptx" | "text";
+
+export interface SourceDocument {
+  kind: SourceDocumentKind;
+  label: string;
+  filename: string | null;
+  url: string | null;
+  public_id: string | null;
+  extracted_text: string;
+  added_at: string;
+}
 export type SubmissionKind = "audio_task" | "friday_video";
 export type ClassKind = "group" | "one_to_one";
 export type HomeworkKind = "lesson" | "writing" | "audio" | "link";
@@ -806,6 +817,8 @@ export interface TopicPublic extends BaseSchema {
   pdf_url: string | null;
   pdf_filename: string | null;
   pdf_extracted_text: string | null;
+  /** Authoring-only multi-source material.  The API never sends this to Students. */
+  source_documents: SourceDocument[] | null;
   /** AI-suggested exercises awaiting teacher review (Slice C) - `[]` for a
    * Student, same disclosure rule as `raw_transcript`. Index into this
    * array is what `topicsApi.acceptDraftExercise`/`rejectDraftExercise`/

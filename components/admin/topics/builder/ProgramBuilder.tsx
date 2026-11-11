@@ -130,6 +130,8 @@ export function ProgramBuilder({
   const [pdfFilename, setPdfFilename] = useState<string | null>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const [uploadedVideoFilename, setUploadedVideoFilename] = useState<string | null>(null);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -519,6 +521,59 @@ export function ProgramBuilder({
     }
   };
 
+  const handleUploadDocument = async (file: File) => {
+    if (!topicId) return;
+    setUploadingDocument(true);
+    setDocumentError(null);
+    try {
+      const updated = await topicsApi.uploadDocument(topicId, file);
+      setTranscriptState(updated.transcript_state);
+      setTranscriptSource(updated.transcript_source);
+      await refetchTopic();
+      onSaved();
+    } catch {
+      setDocumentError("We couldn't read that document. Use a text-based PDF, DOCX, or PPTX under 20 MB and try again.");
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
+
+  const handleAddTextSource = async (label: string, text: string): Promise<boolean> => {
+    if (!topicId) return false;
+    setUploadingDocument(true);
+    setDocumentError(null);
+    try {
+      const updated = await topicsApi.addTextSource(topicId, { label, text });
+      setTranscriptState(updated.transcript_state);
+      setTranscriptSource(updated.transcript_source);
+      await refetchTopic();
+      onSaved();
+      return true;
+    } catch {
+      setDocumentError("We couldn't add that text. Please check it and try again.");
+    } finally {
+      setUploadingDocument(false);
+    }
+    return false;
+  };
+
+  const handleRemoveDocument = async (index: number) => {
+    if (!topicId) return;
+    setUploadingDocument(true);
+    setDocumentError(null);
+    try {
+      const updated = await topicsApi.removeDocument(topicId, index);
+      setTranscriptState(updated.transcript_state);
+      setTranscriptSource(updated.transcript_source);
+      await refetchTopic();
+      onSaved();
+    } catch {
+      setDocumentError("We couldn't remove that source. Please try again.");
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
+
   const handleUploadVideo = async (file: File) => {
     if (!topicId) return;
     setUploadingVideo(true);
@@ -734,6 +789,12 @@ export function ProgramBuilder({
                 onRemovePdf={handleRemovePdf}
                 uploadingPdf={uploadingPdf}
                 pdfError={pdfError}
+                sourceDocuments={loadedTopic?.source_documents ?? []}
+                onUploadDocument={handleUploadDocument}
+                onAddTextSource={handleAddTextSource}
+                onRemoveDocument={handleRemoveDocument}
+                uploadingDocument={uploadingDocument}
+                documentError={documentError}
                 uploadedVideoFilename={uploadedVideoFilename}
                 onUploadVideo={handleUploadVideo}
                 onRemoveVideo={handleRemoveVideo}
