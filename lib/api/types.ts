@@ -627,7 +627,7 @@ export interface PracticeScheduleBlock {
 }
 
 export interface LessonExercise {
-  kind: "video" | "vocab" | "image_completion" | "listening" | "grammar" | "reading" | "writing" | "speaking" | "game" | "series" | "multiple_choice" | "reflection";
+  kind: "video" | "vocab" | "image_completion" | "listening" | "grammar" | "reading" | "writing" | "speaking" | "game" | "series" | "multiple_choice" | "reflection" | "word_order";
   prompt: string;
   options: string[];
   correct_option: number | null;
@@ -637,6 +637,9 @@ export interface LessonExercise {
   media_url: string;
   audio_url: string;
   pairs: { left: string; right: string }[];
+  /** Sentence Building / Word Ordering: the target sentence's words, in
+   * their CORRECT order. The student player shuffles them for display. */
+  ordering_words: string[];
   min_words: number;
   allow_resubmit: boolean;
   /** ISO timestamp in UTC; null means this activity has no deadline. */

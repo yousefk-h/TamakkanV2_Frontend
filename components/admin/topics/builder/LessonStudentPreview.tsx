@@ -33,6 +33,7 @@ export function LessonStudentPreview({ title, level, levelName, exercises, vocab
         {exercise.kind === "writing" && <div className="h-24 rounded-xl border border-line bg-bg" />}
         {exercise.kind === "speaking" && <div className="rounded-xl border border-dashed border-line p-4 text-center text-sm">🎙️ {t("builder.previewRecordVoice")}</div>}
         {exercise.kind === "game" && <div className="grid grid-cols-2 gap-2 text-sm">{exercise.pairs.flatMap((pair, pairIndex) => [<span key={`l-${pairIndex}`} className="rounded-lg bg-bg p-2">{pair.left}</span>, <span key={`r-${pairIndex}`} className="rounded-lg bg-bg p-2">{pair.right}</span>])}</div>}
+        {exercise.kind === "word_order" && <div className="flex flex-wrap gap-1.5">{[...exercise.ordering_words].reverse().map((word, i) => <span key={i} className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm">{word || `#${exercise.ordering_words.length - i}`}</span>)}</div>}
       </article>)}
     </div>
   </div>;

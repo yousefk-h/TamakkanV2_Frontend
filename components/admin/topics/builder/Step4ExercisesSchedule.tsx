@@ -7,15 +7,17 @@ import { topicsApi, ApiError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { insertLessonBlock, moveLessonBlock } from "@/lib/lessonBuilder/order";
 
-const SKILL_KINDS = ["video", "vocab", "image_completion", "listening", "grammar", "reading", "writing", "speaking", "game", "series"] as const;
+const SKILL_KINDS = ["video", "vocab", "image_completion", "listening", "grammar", "reading", "writing", "speaking", "game", "series", "word_order"] as const;
 const ANSWER_KINDS = new Set<LessonExercise["kind"]>(["multiple_choice", "image_completion", "listening", "grammar", "reading"]);
-const AI_KINDS = new Set<LessonExercise["kind"]>(["multiple_choice", "reflection", "listening", "grammar", "reading", "writing", "speaking", "game", "series"]);
+const AI_KINDS = new Set<LessonExercise["kind"]>(["multiple_choice", "reflection", "listening", "grammar", "reading", "writing", "speaking", "game", "series", "word_order"]);
 
 function newExercise(kind: LessonExercise["kind"]): LessonExercise {
   return {
-    kind, prompt: kind === "video" ? "Watch the lesson video." : kind === "vocab" ? "Learn the key words." : kind === "speaking" ? "Practice speaking with Mariam using this lesson." : "",
+    kind, prompt: kind === "video" ? "Watch the lesson video." : kind === "vocab" ? "Learn the key words." : kind === "speaking" ? "Practice speaking with Mariam using this lesson." : kind === "word_order" ? "Put the words in the correct order." : "",
     options: ANSWER_KINDS.has(kind) ? ["", ""] : [], correct_option: ANSWER_KINDS.has(kind) ? 0 : null,
-    explanation: "", content: "", arabic_note: "", media_url: "", audio_url: "", pairs: kind === "game" ? [{ left: "", right: "" }, { left: "", right: "" }] : [], min_words: kind === "writing" ? 20 : 0, allow_resubmit: true, deadline_at: null,
+    explanation: "", content: "", arabic_note: "", media_url: "", audio_url: "", pairs: kind === "game" ? [{ left: "", right: "" }, { left: "", right: "" }] : [],
+    ordering_words: kind === "word_order" ? ["", "", ""] : [],
+    min_words: kind === "writing" ? 20 : 0, allow_resubmit: true, deadline_at: null,
   };
 }
 
@@ -155,8 +157,8 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
         <p className="px-1 text-xs text-muted">{t("builder.dragHint")}</p>
         <div className="mt-3 grid grid-cols-2 gap-2 lg:max-h-[70vh] lg:overflow-y-auto">
           {SKILL_KINDS.map(kind => {
-            const labels = { video: t("builder.skillVideo"), vocab: t("builder.skillVocab"), image_completion: t("builder.skillImages"), listening: t("builder.skillListening"), grammar: t("builder.skillGrammar"), reading: t("builder.skillReading"), writing: t("builder.skillWriting"), speaking: t("builder.skillSpeaking"), game: t("builder.skillGame"), series: t("builder.skillSeries") };
-            const notes = { video: t("builder.skillVideoDesc"), vocab: t("builder.skillVocabDesc"), image_completion: t("builder.skillImagesDesc"), listening: t("builder.skillListeningDesc"), grammar: t("builder.skillGrammarDesc"), reading: t("builder.skillReadingDesc"), writing: t("builder.skillWritingDesc"), speaking: t("builder.skillSpeakingDesc"), game: t("builder.skillGameDesc"), series: t("builder.skillSeriesDesc") };
+            const labels = { video: t("builder.skillVideo"), vocab: t("builder.skillVocab"), image_completion: t("builder.skillImages"), listening: t("builder.skillListening"), grammar: t("builder.skillGrammar"), reading: t("builder.skillReading"), writing: t("builder.skillWriting"), speaking: t("builder.skillSpeaking"), game: t("builder.skillGame"), series: t("builder.skillSeries"), word_order: t("builder.skillWordOrder") };
+            const notes = { video: t("builder.skillVideoDesc"), vocab: t("builder.skillVocabDesc"), image_completion: t("builder.skillImagesDesc"), listening: t("builder.skillListeningDesc"), grammar: t("builder.skillGrammarDesc"), reading: t("builder.skillReadingDesc"), writing: t("builder.skillWritingDesc"), speaking: t("builder.skillSpeakingDesc"), game: t("builder.skillGameDesc"), series: t("builder.skillSeriesDesc"), word_order: t("builder.skillWordOrderDesc") };
             return <PaletteCard key={kind} kind={kind} label={labels[kind]} note={notes[kind]} disabled={kind === "video" && !hasVideo || kind === "vocab" && !hasVocabulary} onAdd={() => { onExercisesChange([...exercises, newExercise(kind)]); setExpandedIndex(null); }} />;
           })}
         </div>
@@ -206,6 +208,7 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
                 {item.arabic_note && <span dir="rtl" className="mt-1 block ps-5 text-xs text-muted">{item.arabic_note}</span>}
                 {item.options.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.options.join(" · ")} · {t("builder.correctAnswer")}: {item.options[item.correct_option ?? 0]}</span>}
                 {item.pairs.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.pairs.map(pair => `${pair.left} → ${pair.right}`).join(" · ")}</span>}
+                {item.ordering_words.length > 0 && <span className="mt-1 block ps-5 text-xs text-muted">{item.ordering_words.join(" ")}</span>}
               </li>)}</ol>
               <div className="mt-3 flex gap-2"><button type="button" onClick={onAcceptSuggestions} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">{t("builder.aiUseSuggestions")}</button><button type="button" onClick={onDiscardSuggestions} className="min-h-11 rounded-lg border border-line px-4 text-sm">{t("builder.aiDiscard")}</button></div>
             </div>}
@@ -232,7 +235,7 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
           {exercise.kind === "writing" && <label className="mt-3 block text-sm font-semibold">{t("builder.minimumWords")}
             <input type="number" min={0} max={500} value={exercise.min_words} onChange={event => update(index, { min_words: Number(event.target.value) })} className="mt-1 block min-h-11 w-28 rounded-lg border border-line bg-bg px-3 font-normal" />
           </label>}
-          {([...ANSWER_KINDS, "writing", "game", "series"] as LessonExercise["kind"][]).includes(exercise.kind) && <fieldset className="mt-4 rounded-xl border border-line bg-bg p-3">
+          {([...ANSWER_KINDS, "writing", "game", "series", "word_order"] as LessonExercise["kind"][]).includes(exercise.kind) && <fieldset className="mt-4 rounded-xl border border-line bg-bg p-3">
             <legend className="px-1 text-sm font-bold text-ink">Student submission</legend>
             <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={exercise.allow_resubmit} onChange={event => update(index, { allow_resubmit: event.target.checked })} className="size-4 accent-brand-blue" /> Students can edit and submit again</label>
             <label className="mt-2 flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={!!exercise.deadline_at} onChange={event => update(index, { deadline_at: event.target.checked ? new Date(Date.now() + 7 * 86400000).toISOString() : null })} className="size-4 accent-brand-blue" /> Set a deadline</label>
@@ -246,6 +249,17 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
               <input value={pair.right} maxLength={500} onChange={event => update(index, { pairs: exercise.pairs.map((item, i) => i === pairIndex ? { ...item, right: event.target.value } : item) })} placeholder={t("builder.pairRight")} className="min-h-11 min-w-0 rounded-lg border border-line bg-bg px-3 text-sm" />
             </div>)}
             <div className="flex gap-3">{exercise.pairs.length < 8 && <button type="button" onClick={() => update(index, { pairs: [...exercise.pairs, { left: "", right: "" }] })} className="min-h-11 text-sm font-bold text-brand-blue">{t("builder.addPair")}</button>}{exercise.pairs.length > 2 && <button type="button" onClick={() => update(index, { pairs: exercise.pairs.slice(0, -1) })} className="min-h-11 text-sm text-brand-coral">{t("builder.removePair")}</button>}</div>
+          </div>}
+          {exercise.kind === "word_order" && <div className="mt-3 space-y-2">
+            <p className="text-sm font-semibold">{t("builder.sentenceWordsLabel")}</p>
+            <p className="text-xs text-muted">{t("builder.sentenceWordsHint")}</p>
+            {exercise.ordering_words.map((word, wordIndex) => <div key={wordIndex} className="flex items-center gap-2">
+              <span className="w-6 shrink-0 text-xs font-bold text-muted">{wordIndex + 1}</span>
+              <input value={word} maxLength={100} onChange={event => update(index, { ordering_words: exercise.ordering_words.map((item, i) => i === wordIndex ? event.target.value : item) })} placeholder={t("builder.wordPlaceholder")} className="min-h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-sm" />
+              {exercise.ordering_words.length > 2 && <button type="button" onClick={() => update(index, { ordering_words: exercise.ordering_words.filter((_, i) => i !== wordIndex) })} className="min-h-11 min-w-11 rounded-lg border border-line" aria-label={t("builder.removeWord")}>×</button>}
+            </div>)}
+            {exercise.ordering_words.length < 20 && <button type="button" onClick={() => update(index, { ordering_words: [...exercise.ordering_words, ""] })} className="min-h-11 text-sm font-bold text-brand-blue">{t("builder.addSentenceWord")}</button>}
+            {exercise.ordering_words.filter(w => w.trim()).length >= 2 && <p className="rounded-lg bg-bg p-2 text-xs text-muted">{t("builder.sentencePreview")}: {exercise.ordering_words.filter(w => w.trim()).join(" ")}</p>}
           </div>}
           {ANSWER_KINDS.has(exercise.kind) && <div className="mt-3 space-y-2">
             <p className="text-xs text-muted">{t("builder.correctAnswerHint")}</p>
@@ -267,7 +281,7 @@ export function Step4ExercisesSchedule({ topicId, exercises, onExercisesChange, 
         <p className="text-xs font-bold uppercase tracking-wide text-brand-blue">Student preview</p>
         <p className="mt-1 text-sm text-muted">A live preview of the selected activity.</p>
         <div className="mt-4 rounded-[2rem] border-[7px] border-slate-800 bg-bg p-3 shadow-inner">
-          {(() => { const item = exercises[expandedIndex ?? 0]; return item ? <div><p className="text-[10px] font-bold uppercase text-brand-blue">{item.kind.replaceAll("_", " ")}</p><h4 className="mt-2 text-sm font-bold text-ink">{item.prompt || "Your activity question will appear here"}</h4>{item.media_url && <div className="mt-3 grid min-h-24 place-items-center rounded-xl bg-brand-primary-pale text-xs text-brand-blue">Image</div>}{item.options.length > 0 && <div className="mt-3 grid gap-2">{item.options.map((option, optionIndex) => <div key={optionIndex} className="rounded-xl border border-line bg-card px-3 py-2 text-xs">○ {option || `Option ${optionIndex + 1}`}</div>)}</div>}{item.kind === "speaking" && <button type="button" className="mt-3 w-full rounded-xl bg-brand-blue px-3 py-2 text-xs font-bold text-white">Start speaking</button>}</div> : <p className="py-12 text-center text-xs text-muted">Add a skill to see the student view.</p>; })()}
+          {(() => { const item = exercises[expandedIndex ?? 0]; return item ? <div><p className="text-[10px] font-bold uppercase text-brand-blue">{item.kind.replaceAll("_", " ")}</p><h4 className="mt-2 text-sm font-bold text-ink">{item.prompt || "Your activity question will appear here"}</h4>{item.media_url && <div className="mt-3 grid min-h-24 place-items-center rounded-xl bg-brand-primary-pale text-xs text-brand-blue">Image</div>}{item.options.length > 0 && <div className="mt-3 grid gap-2">{item.options.map((option, optionIndex) => <div key={optionIndex} className="rounded-xl border border-line bg-card px-3 py-2 text-xs">○ {option || `Option ${optionIndex + 1}`}</div>)}</div>}{item.ordering_words.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{[...item.ordering_words].reverse().map((word, i) => <span key={i} className="rounded-lg border border-line bg-card px-2 py-1 text-xs">{word || `#${item.ordering_words.length - i}`}</span>)}</div>}{item.kind === "speaking" && <button type="button" className="mt-3 w-full rounded-xl bg-brand-blue px-3 py-2 text-xs font-bold text-white">Start speaking</button>}</div> : <p className="py-12 text-center text-xs text-muted">Add a skill to see the student view.</p>; })()}
         </div>
       </aside>
     </div>
