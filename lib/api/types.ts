@@ -688,6 +688,19 @@ export interface DraftExercisesResponse {
   model: string;
 }
 
+export type ObjectiveSource = "manual" | "ai";
+
+/** Teacher-only curriculum intent. It is deliberately absent from Student
+ * responses, including when approved. */
+export interface LearningObjective {
+  text: string;
+  source: ObjectiveSource;
+}
+
+export interface ObjectiveSuggestion {
+  text: string;
+}
+
 /** GET /topics row shape - deliberately no transcript, see the backend's own
  * docstring on TopicListItem for why (payload size). */
 export interface ActivityAnalytics {
@@ -819,6 +832,9 @@ export interface TopicPublic extends BaseSchema {
   pdf_extracted_text: string | null;
   /** Authoring-only multi-source material.  The API never sends this to Students. */
   source_documents: SourceDocument[] | null;
+  learning_objectives: LearningObjective[];
+  objectives_approved: boolean;
+  objective_drafts: LearningObjective[];
   /** AI-suggested exercises awaiting teacher review (Slice C) - `[]` for a
    * Student, same disclosure rule as `raw_transcript`. Index into this
    * array is what `topicsApi.acceptDraftExercise`/`rejectDraftExercise`/

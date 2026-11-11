@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
 import { ApiError, levelProfilesApi, topicsApi } from "@/lib/api/client";
-import type { ArabicInterventionLevel, LessonExercise, Level, LevelProfilePublic, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
+import type { ArabicInterventionLevel, LearningObjective, LessonExercise, Level, LevelProfilePublic, ObjectiveSuggestion, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
 import { useTopic } from "@/lib/hooks/useTopics";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { Step1Basics } from "./Step1Basics";
 import { Step2VideoTranscript } from "./Step2VideoTranscript";
 import { Step3AvatarPrompt } from "./Step3AvatarPrompt";
+import { Step3LearningObjectives } from "./Step3LearningObjectives";
 import { Step4Review } from "./Step4Review";
 import { Step4ExercisesSchedule } from "./Step4ExercisesSchedule";
 import { LessonStudentPreview } from "./LessonStudentPreview";
@@ -62,8 +63,8 @@ export function ProgramBuilder({
   hideProgramAssignments?: boolean;
 }) {
   const { t } = useI18n();
-  const BUILDER_STEPS = [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5"), t("builder.stepName6")];
-  const STEP_BLURBS = [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5"), t("builder.stepBlurb6")];
+  const BUILDER_STEPS = [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5"), t("builder.stepName6"), t("builder.stepName7")];
+  const STEP_BLURBS = [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5"), t("builder.stepBlurb6"), t("builder.stepBlurb7")];
   const [topicId, setTopicId] = useState(initialTopicId);
   const { topic: loadedTopic, refetch: refetchTopic } = useTopic(topicId);
   const [step, setStep] = useState(1);
@@ -134,6 +135,12 @@ export function ProgramBuilder({
   const [uploadedVideoFilename, setUploadedVideoFilename] = useState<string | null>(null);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [learningObjectives, setLearningObjectives] = useState<LearningObjective[]>([]);
+  const [objectivesApproved, setObjectivesApproved] = useState(false);
+  const [objectiveSuggestions, setObjectiveSuggestions] = useState<ObjectiveSuggestion[]>([]);
+  const [savingObjectives, setSavingObjectives] = useState(false);
+  const [suggestingObjectives, setSuggestingObjectives] = useState(false);
+  const [objectivesError, setObjectivesError] = useState<string | null>(null);
 
   // Seed the editable fields once the real topic loads (edit mode only -
   // create mode never has a `loadedTopic` until after step 1's first save).
@@ -166,6 +173,9 @@ export function ProgramBuilder({
     setEditedTranscript(formatSourceTranscript(loadedTopic.raw_transcript, loadedTopic.transcript_source_labels));
     setPdfFilename(loadedTopic.pdf_filename ?? null);
     setUploadedVideoFilename(loadedTopic.uploaded_video_filename ?? null);
+    setLearningObjectives(loadedTopic.learning_objectives ?? []);
+    setObjectivesApproved(loadedTopic.objectives_approved ?? false);
+    setObjectiveSuggestions(loadedTopic.objective_drafts ?? []);
   }, [loadedTopic, exercisesDirty]);
 
   useEffect(() => {
@@ -588,6 +598,73 @@ export function ProgramBuilder({
     setEnglishReview(null);
   };
 
+  const handleSaveObjectives = async () => {
+    if (!topicId) return;
+    const objectives = learningObjectives
+      .map(item => ({ ...item, text: item.text.trim() }))
+      .filter(item => item.text);
+    if (!objectives.length || objectives.length !== learningObjectives.length) {
+      setObjectivesError(t("builder.objectivesValidation"));
+      return;
+    }
+    setSavingObjectives(true); setObjectivesError(null);
+    try {
+      const updated = await topicsApi.updateObjectives(topicId, objectives);
+      setLearningObjectives(updated.learning_objectives);
+      setObjectivesApproved(updated.objectives_approved);
+      onSaved();
+    } catch (err) {
+      setObjectivesError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed"));
+    } finally { setSavingObjectives(false); }
+  };
+
+  const handleSuggestObjectives = async () => {
+    if (!topicId) return;
+    setSuggestingObjectives(true); setObjectivesError(null);
+    try { setObjectiveSuggestions(await topicsApi.suggestObjectives(topicId)); }
+    catch (err) { setObjectivesError(err instanceof ApiError ? err.message : t("builder.objectivesSuggestFailed")); }
+    finally { setSuggestingObjectives(false); }
+  };
+
+  const handleObjectiveSuggestionAction = async (index: number, action: "accept" | "reject") => {
+    if (!topicId) return;
+    setSavingObjectives(true); setObjectivesError(null);
+    try {
+      const updated = action === "accept"
+        ? await topicsApi.acceptObjectiveSuggestion(topicId, index)
+        : await topicsApi.rejectObjectiveSuggestion(topicId, index);
+      setLearningObjectives(updated.learning_objectives);
+      setObjectiveSuggestions(updated.objective_drafts ?? []);
+      setObjectivesApproved(updated.objectives_approved);
+      onSaved();
+    } catch (err) { setObjectivesError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed")); }
+    finally { setSavingObjectives(false); }
+  };
+
+  const handleApproveObjectives = async () => {
+    if (!topicId) return;
+    // Persist accepted/edited suggestions before the irreversible approval.
+    const objectives = learningObjectives.map(item => ({ ...item, text: item.text.trim() })).filter(item => item.text);
+    if (!objectives.length || objectives.length !== learningObjectives.length) { setObjectivesError(t("builder.objectivesValidation")); return; }
+    setSavingObjectives(true); setObjectivesError(null);
+    try {
+      const saved = await topicsApi.updateObjectives(topicId, objectives);
+      const approved = await topicsApi.approveObjectives(topicId);
+      setLearningObjectives(approved.learning_objectives || saved.learning_objectives);
+      setObjectivesApproved(approved.objectives_approved);
+      onSaved();
+    } catch (err) { setObjectivesError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed")); }
+    finally { setSavingObjectives(false); }
+  };
+
+  const handleObjectivesContinue = async () => {
+    if (learningObjectives.length && !objectivesApproved) {
+      setObjectivesError(t("builder.objectivesApprovalRequired"));
+      return;
+    }
+    setStep(4);
+  };
+
   const handleStep3Continue = async () => {
     if (!topicId) return;
     setSaving(true);
@@ -610,7 +687,7 @@ export function ProgramBuilder({
         vocabulary: cleanedVocabulary,
       });
       onSaved();
-      setStep(4);
+      setStep(5);
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed"));
     } finally {
@@ -634,7 +711,7 @@ export function ProgramBuilder({
     try {
       await topicsApi.update(topicId, { lesson_exercises: exercises.map(exercise => ({ ...exercise, prompt: exercise.prompt.trim(), options: exercise.options.map(option => option.trim()) })) });
       onSaved();
-      setStep(5);
+      setStep(6);
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed"));
     } finally {
@@ -774,6 +851,23 @@ export function ProgramBuilder({
               />
             )}
             {step === 3 && (
+              <Step3LearningObjectives
+                objectives={learningObjectives}
+                suggestions={objectiveSuggestions}
+                approved={objectivesApproved}
+                canSuggest={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100}
+                saving={savingObjectives}
+                suggesting={suggestingObjectives}
+                error={objectivesError}
+                onChange={next => { setLearningObjectives(next); setObjectivesApproved(false); setObjectivesError(null); }}
+                onSuggest={handleSuggestObjectives}
+                onSave={handleSaveObjectives}
+                onApprove={handleApproveObjectives}
+                onAcceptSuggestion={index => void handleObjectiveSuggestionAction(index, "accept")}
+                onRejectSuggestion={index => void handleObjectiveSuggestionAction(index, "reject")}
+              />
+            )}
+            {step === 4 && (
               <Step3AvatarPrompt
                 title={title}
                 avatarPrompt={avatarPrompt}
@@ -800,11 +894,11 @@ export function ProgramBuilder({
                 onRegenerateContent={handleRegenerateContent}
               />
             )}
-            {step === 4 && (
+            {step === 5 && (
               <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
                 lessonDraftJob={lessonDraftJob} draftExercises={loadedTopic?.draft_exercises ?? []} onGenerateLessonDraft={handleGenerateLessonDraft} lessonDraftStarting={lessonDraftStarting} lessonDraftError={lessonDraftError} onAcceptDraftExercise={index => handleDraftExerciseAction(index, "accept")} onRejectDraftExercise={index => handleDraftExerciseAction(index, "reject")} onRegenerateDraftExercise={index => handleDraftExerciseAction(index, "regenerate")} draftExerciseActionIndex={draftExerciseActionIndex} exercisesDirty={exercisesDirty} />
             )}
-            {step === 5 && (
+            {step === 6 && (
               <div className="mx-auto max-w-[720px]">
                 <Step4Review
                   level={level}
@@ -820,7 +914,7 @@ export function ProgramBuilder({
                 />
               </div>
             )}
-            {step === 6 && (
+            {step === 7 && (
               <div className="mx-auto max-w-[720px]">
                 <div className="mb-5 rounded-2xl border border-brand-blue/20 bg-brand-primary-pale p-4"><h3 className="text-lg font-bold text-ink">Choose where students will learn this lesson</h3><p className="mt-1 text-sm text-muted">Select a Program, its learning stage, then publish when it is ready. This is separate from writing the lesson so nothing is assigned by accident.</p></div>
                 {topicId && !hideProgramAssignments ? <TopicProgramAssignments topicId={topicId} /> : <p className="rounded-2xl border border-dashed border-line bg-card p-5 text-sm text-muted">This lesson will be placed from the Batch curriculum after you finish.</p>}
@@ -851,6 +945,10 @@ export function ProgramBuilder({
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
             ) : step === 3 ? (
+              <button type="button" disabled={savingObjectives} onClick={handleObjectivesContinue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+                {savingObjectives ? t("builder.saving") : t("builder.continueBtn")}
+              </button>
+            ) : step === 4 ? (
               <button
                 type="button"
                 disabled={saving}
@@ -859,12 +957,12 @@ export function ProgramBuilder({
               >
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 4 ? (
+            ) : step === 5 ? (
               <button type="button" disabled={saving} onClick={handleStep4Continue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 5 ? (
-              <button type="button" disabled={saving} onClick={() => setStep(6)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+            ) : step === 6 ? (
+              <button type="button" disabled={saving} onClick={() => setStep(7)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {t("builder.continueBtn")}
               </button>
             ) : (

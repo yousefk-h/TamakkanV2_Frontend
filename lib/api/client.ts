@@ -36,6 +36,8 @@ import type {
   ListTopicsParams,
   ListUnitsParams,
   LiveClassPublic,
+  LearningObjective,
+  ObjectiveSuggestion,
   LevelProfileCreateRequest,
   LevelProfilePublic,
   HomeworkCreateRequest,
@@ -400,6 +402,19 @@ export const topicsApi = {
    * exercise kind - same cost controls as the initial draft. */
   regenerateDraftExercise: (topicId: string, index: number) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/draft-exercises/${index}/regenerate`, { method: "POST" }),
+  /** Replaces only the teacher-reviewed objective list. A material edit
+   * resets approval but does not alter exercises or published revisions. */
+  updateObjectives: (topicId: string, objectives: LearningObjective[]) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/objectives`, { method: "PUT", json: { objectives } }),
+  approveObjectives: (topicId: string) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/objectives/approve`, { method: "POST" }),
+  /** Transient drafts only; provider metadata is intentionally not returned. */
+  suggestObjectives: (topicId: string, refresh = false) =>
+    request<ObjectiveSuggestion[]>(`${BACKEND_PREFIX}/topics/${topicId}/suggest-objectives`, { method: "POST", params: { refresh } }),
+  acceptObjectiveSuggestion: (topicId: string, index: number) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/objective-drafts/${index}/accept`, { method: "POST" }),
+  rejectObjectiveSuggestion: (topicId: string, index: number) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/objective-drafts/${index}/reject`, { method: "POST" }),
   reviewTranscriptEnglish: (topicId: string, transcript: string) =>
     request<ReviewTranscriptEnglishResult>(`${BACKEND_PREFIX}/topics/${topicId}/review-transcript-english`, {
       method: "POST",
