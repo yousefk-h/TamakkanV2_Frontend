@@ -56,7 +56,12 @@ function LessonExerciseRow({ studentId, topicId, enrollmentId, exercise, t }: {
   </div>;
 }
 
-function LearningJourneySection({ studentId, t }: { studentId: string; t: (key: MessageKey, vars?: Record<string, string | number>) => string }) {
+/** Fetched once by the parent (not here) so the "Topics assigned" stat
+ * card above can stay consistent with this same section instead of
+ * computing its own, separately-sourced count - see the comment on
+ * `studentTopics` in `StudentDetailPage` for why that split existed and
+ * what it caused. */
+function useLearningJourney(studentId: string) {
   const [journey, setJourney] = useState<StudentLearningJourney | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -68,6 +73,13 @@ function LearningJourneySection({ studentId, t }: { studentId: string; t: (key: 
     return () => { cancelled = true; };
   }, [studentId]);
 
+  return { journey, failed };
+}
+
+function LearningJourneySection({ studentId, journey, failed, t }: {
+  studentId: string; journey: StudentLearningJourney | null; failed: boolean;
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string;
+}) {
   if (failed) return <p role="alert" className="mt-8 text-sm text-muted">{t("studentDetail.journeyLoadFailed")}</p>;
   if (journey === null) return <p className="mt-8 text-sm text-muted">{t("common.loading")}</p>;
 
@@ -163,6 +175,7 @@ export function StudentDetailPage({
   const { topics, topicsByLevel } = useTopicsContext();
   const { sessions } = useSessionsForAdmin();
   const { alerts } = useStudentAlert(student.id);
+  const { journey, failed: journeyFailed } = useLearningJourney(student.id);
   const [submissions, setSubmissions] = useState<SubmissionPublic[] | null>(null);
   const [submissionsFailed, setSubmissionsFailed] = useState(false);
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -188,6 +201,17 @@ export function StudentDetailPage({
       : student.plan === "pro"
         ? (topics ?? []).filter(topic => assignedTopicIdSet.has(topic.id))
         : [];
+  // The "Topics assigned" stat card used to count only `studentTopics`
+  // above (the legacy plan/assigned_level path) - a student enrolled
+  // purely through a Cohort has no plan at all, so this read 0 while the
+  // Learning Journey section just below, on the SAME page, correctly
+  // listed their real lessons from `journey.enrollments[].lessons`. Count
+  // both, deduped by topic id, so the stat card can never disagree with
+  // the section right under it.
+  const enrollmentTopicIds = new Set(
+    (journey?.enrollments ?? []).flatMap(e => e.lessons.map(lesson => lesson.topic_id)),
+  );
+  const topicsAssignedCount = new Set([...studentTopics.map(topic => topic.id), ...enrollmentTopicIds]).size;
 
   const mySubs = submissions ?? [];
   const [checkInPage, checkInAnchor] = usePagination(mySubs);
@@ -249,7 +273,7 @@ export function StudentDetailPage({
       <section className="metric-grid mt-4 grid gap-4">
         {(
           [
-            [t("studentDetail.topicsAssigned"), String(studentTopics.length), student.plan ? t("studentDetail.inCurrentPlan") : t("studentDetail.noPlanYet")],
+            [t("studentDetail.topicsAssigned"), String(topicsAssignedCount), student.plan ? t("studentDetail.inCurrentPlan") : enrollmentTopicIds.size > 0 ? t("studentDetail.viaEnrollment") : t("studentDetail.noPlanYet")],
             [t("studentDetail.sessionLimit"), sessionLimitLabel(student, t), t("studentDetail.perSession")],
             [t("studentDetail.checkInsSubmitted"), String(mySubs.length), t("studentDetail.needReview", { count: mySubs.filter(s => !s.reviewed).length })],
             [t("studentDetail.joined"), formatDate(student.created_at), t("studentDetail.accountCreated")],
@@ -291,7 +315,7 @@ export function StudentDetailPage({
         </section>
       )}
 
-      <LearningJourneySection studentId={student.id} t={t} />
+      <LearningJourneySection studentId={student.id} journey={journey} failed={journeyFailed} t={t} />
 
       <section className="mt-8 rounded-2xl border border-line bg-card p-5 shadow-card">
         <div className="flex items-center justify-between">

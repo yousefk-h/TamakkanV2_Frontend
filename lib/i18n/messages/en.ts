@@ -1563,6 +1563,7 @@ export const en = {
     topicsAssigned: "Topics assigned",
     inCurrentPlan: "in current plan",
     noPlanYet: "no plan yet",
+    viaEnrollment: "via Cohort enrollment",
     sessionLimit: "Session limit",
     perSession: "per session",
     checkInsSubmitted: "Check-ins submitted",

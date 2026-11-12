@@ -1560,6 +1560,7 @@ export const ar = {
     topicsAssigned: "المواضيع المعيّنة",
     inCurrentPlan: "في الخطة الحالية",
     noPlanYet: "لا توجد خطة بعد",
+    viaEnrollment: "عبر تسجيل الدفعة",
     sessionLimit: "حد الجلسة",
     perSession: "لكل جلسة",
     checkInsSubmitted: "التسجيلات المرسلة",
