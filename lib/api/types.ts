@@ -119,6 +119,10 @@ export type CohortStatus = "active" | "completed" | "archived";
 export interface CohortTeacherAssignment {
   teacher_id: string;
   program_level_ids: string[];
+  /** Display-only denormalization resolved server-side (CohortPublic only);
+   * `null`/absent means the account is gone or unavailable - never fall
+   * back to rendering `teacher_id` itself as the label. */
+  teacher_name?: string | null;
 }
 
 export interface CohortCreateRequest {

@@ -333,7 +333,13 @@ function TeachersTab({ cohort, teachers, isAdmin, onChanged }: { cohort: CohortP
   // Keeps the editor in sync after a save elsewhere reloads the Cohort.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLeadTeacherId(cohort.lead_teacher_id); setAssignments(cohort.teacher_assignments); }, [cohort]);
-  const teacherName = (id: string) => teachers.find(tc => tc.id === id)?.full_name ?? id;
+  // Never the raw id: an assignment the server could not resolve (teacher
+  // account deleted/unavailable) falls back to a plain, honest placeholder
+  // instead. `assignment?.teacher_name` covers the already-saved case
+  // (resolved server-side in CohortPublic); the local `teachers` list
+  // covers a just-added, not-yet-saved assignment.
+  const teacherName = (id: string, assignment?: CohortTeacherAssignment) =>
+    assignment?.teacher_name ?? teachers.find(tc => tc.id === id)?.full_name ?? t("cohorts.unknownTeacher");
 
   const save = async () => {
     setSaving(true); setError("");
@@ -352,9 +358,9 @@ function TeachersTab({ cohort, teachers, isAdmin, onChanged }: { cohort: CohortP
   if (!isAdmin) {
     return <section className="rounded-2xl border border-line bg-card p-5">
       <p className="text-xs text-muted">{t("cohorts.leadTeacherLabel")}</p>
-      <p className="mt-1 font-bold">{teacherName(cohort.lead_teacher_id)}</p>
+      <p className="mt-1 font-bold">{cohort.lead_teacher_name ?? teacherName(cohort.lead_teacher_id)}</p>
       <ul className="mt-4 grid gap-1">
-        {assignments.map(a => <li key={a.teacher_id} className="text-sm">{teacherName(a.teacher_id)} — {a.program_level_ids.length ? a.program_level_ids.join(", ") : t("batchWorkspace.allStages")}</li>)}
+        {assignments.map(a => <li key={a.teacher_id} className="text-sm">{teacherName(a.teacher_id, a)} — {a.program_level_ids.length ? a.program_level_ids.join(", ") : t("batchWorkspace.allStages")}</li>)}
       </ul>
     </section>;
   }
@@ -370,7 +376,7 @@ function TeachersTab({ cohort, teachers, isAdmin, onChanged }: { cohort: CohortP
       <ul className="mt-2 grid gap-2">
         {assignments.map(a => (
           <li key={a.teacher_id} className="flex items-center justify-between rounded-xl border border-line px-3 py-2 text-sm">
-            {teacherName(a.teacher_id)}
+            {teacherName(a.teacher_id, a)}
             <button onClick={() => setAssignments(current => current.filter(item => item.teacher_id !== a.teacher_id))} className="text-xs font-bold text-brand-coral">{t("cohorts.removeStudent")}</button>
           </li>
         ))}

@@ -333,6 +333,7 @@ export const ar = {
     saveError: "تعذر الحفظ.",
     empty: "لا توجد دفعات بعد.",
     leadTeacherLabel: "المعلم المسؤول",
+    unknownTeacher: "معلم غير متاح",
     studentCount: "{count} طالب مسجّل",
     archive: "أرشفة",
     rosterShow: "عرض قائمة الطلاب",

@@ -336,6 +336,7 @@ export const en = {
     saveError: "We couldn't save this.",
     empty: "No Cohorts yet.",
     leadTeacherLabel: "Lead teacher",
+    unknownTeacher: "Unavailable teacher",
     studentCount: "{count} student(s) enrolled",
     archive: "Archive",
     rosterShow: "Show roster",
