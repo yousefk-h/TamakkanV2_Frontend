@@ -65,8 +65,6 @@ export function ProgramBuilder({
   hideProgramAssignments?: boolean;
 }) {
   const { t } = useI18n();
-  const BUILDER_STEPS = [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5"), t("builder.stepName6"), t("builder.stepName7"), t("builder.stepName8")];
-  const STEP_BLURBS = [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5"), t("builder.stepBlurb6"), t("builder.stepBlurb7"), t("builder.stepBlurb8")];
   const [topicId, setTopicId] = useState(initialTopicId);
   const { topic: loadedTopic, refetch: refetchTopic } = useTopic(topicId);
   const [step, setStep] = useState(1);
@@ -149,6 +147,13 @@ export function ProgramBuilder({
   const [lessonFlow, setLessonFlow] = useState<LessonFlow>("standard");
   const [persistedLessonFlow, setPersistedLessonFlow] = useState<LessonFlow>("standard");
   const [interactiveCheckpoints, setInteractiveCheckpoints] = useState<InteractiveVideoCheckpoint[]>([]);
+  const [videoStudioDirty, setVideoStudioDirty] = useState(false);
+  const BUILDER_STEPS = lessonFlow === "interactive_video"
+    ? [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5"), t("builder.stepName6"), "Video Studio", t("builder.stepName7"), t("builder.stepName8")]
+    : [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5"), t("builder.stepName6"), t("builder.stepName7"), t("builder.stepName8")];
+  const STEP_BLURBS = lessonFlow === "interactive_video"
+    ? [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5"), t("builder.stepBlurb6"), "Place pauses on your uploaded video and attach exercises.", t("builder.stepBlurb7"), t("builder.stepBlurb8")]
+    : [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5"), t("builder.stepBlurb6"), t("builder.stepBlurb7"), t("builder.stepBlurb8")];
 
   // Seed the editable fields once the real topic loads (edit mode only -
   // create mode never has a `loadedTopic` until after step 1's first save).
@@ -774,6 +779,19 @@ export function ProgramBuilder({
       return;
     }
     setSaveError(null);
+    setStep(lessonFlow === "interactive_video" ? 9 : 8);
+  };
+
+  const handleVideoStudioContinue = () => {
+    if (videoStudioDirty) {
+      setSaveError("Save your timeline changes before continuing to review.");
+      return;
+    }
+    if (!interactiveCheckpoints.length) {
+      setSaveError("Add and save at least one Interactive Video checkpoint before reviewing this lesson.");
+      return;
+    }
+    setSaveError(null);
     setStep(8);
   };
 
@@ -963,9 +981,22 @@ export function ProgramBuilder({
               <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
                 lessonDraftJob={lessonDraftJob} draftExercises={loadedTopic?.draft_exercises ?? []} onGenerateLessonDraft={handleGenerateLessonDraft} lessonDraftStarting={lessonDraftStarting} lessonDraftError={lessonDraftError} onAcceptDraftExercise={index => handleDraftExerciseAction(index, "accept")} onRejectDraftExercise={index => handleDraftExerciseAction(index, "reject")} onRegenerateDraftExercise={index => handleDraftExerciseAction(index, "regenerate")} draftExerciseActionIndex={draftExerciseActionIndex} exercisesDirty={exercisesDirty} />
             )}
-            {step === 7 && (
+            {step === 7 && lessonFlow === "interactive_video" && topicId && (
+              <InteractiveVideoTimelineEditor
+                topicId={topicId}
+                uploadedVideoUrl={loadedTopic?.uploaded_video_url ?? null}
+                exercises={exercises}
+                checkpoints={interactiveCheckpoints}
+                transcriptSegments={transcriptSegments}
+                transcriptState={transcriptState}
+                enabled={persistedLessonFlow === "interactive_video"}
+                onSaved={setInteractiveCheckpoints}
+                onOpenExercises={() => setStep(6)}
+                onDirtyChange={setVideoStudioDirty}
+              />
+            )}
+            {((step === 7 && lessonFlow === "standard") || (step === 8 && lessonFlow === "interactive_video")) && (
               <div className="mx-auto max-w-[720px]">
-                {lessonFlow === "interactive_video" && topicId && <InteractiveVideoTimelineEditor topicId={topicId} uploadedVideoUrl={loadedTopic?.uploaded_video_url ?? null} exercises={exercises} checkpoints={interactiveCheckpoints} drafts={loadedTopic?.interactive_video_drafts ?? []} canSuggest={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100 && objectivesApproved} enabled={persistedLessonFlow === "interactive_video"} onSaved={setInteractiveCheckpoints} />}
                 <Step4Review
                   level={level}
                   title={title}
@@ -980,10 +1011,10 @@ export function ProgramBuilder({
                 />
               </div>
             )}
-            {step === 8 && (
+            {((step === 8 && lessonFlow === "standard") || (step === 9 && lessonFlow === "interactive_video")) && (
               <div className="mx-auto max-w-[720px]">
                 <div className="mb-5 rounded-2xl border border-brand-blue/20 bg-brand-primary-pale p-4"><h3 className="text-lg font-bold text-ink">Choose where students will learn this lesson</h3><p className="mt-1 text-sm text-muted">Select a Program, its learning stage, then publish when it is ready. This is separate from writing the lesson so nothing is assigned by accident.</p></div>
-                {lessonFlow === "interactive_video" ? <p className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-900">{t("builder.flowInteractiveNotice")}</p> : topicId && !hideProgramAssignments ? <TopicProgramAssignments topicId={topicId} /> : <p className="rounded-2xl border border-dashed border-line bg-card p-5 text-sm text-muted">This lesson will be placed from the Batch curriculum after you finish.</p>}
+                {topicId && !hideProgramAssignments ? <TopicProgramAssignments topicId={topicId} /> : <p className="rounded-2xl border border-dashed border-line bg-card p-5 text-sm text-muted">This lesson will be placed from the Batch curriculum after you finish.</p>}
               </div>
             )}
           </div>
@@ -1031,7 +1062,11 @@ export function ProgramBuilder({
               <button type="button" disabled={saving} onClick={handleStep4Continue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 7 ? (
+            ) : step === 7 && lessonFlow === "interactive_video" ? (
+              <button type="button" disabled={saving} onClick={handleVideoStudioContinue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+                {t("builder.continueBtn")}
+              </button>
+            ) : ((step === 7 && lessonFlow === "standard") || (step === 8 && lessonFlow === "interactive_video")) ? (
               <button type="button" disabled={saving} onClick={handleReviewContinue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {t("builder.continueBtn")}
               </button>
