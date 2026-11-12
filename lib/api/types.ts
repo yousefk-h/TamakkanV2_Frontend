@@ -1330,6 +1330,14 @@ export interface StudentProgress {
    * `null` if no plan has ever been assigned. Lets the UI show "starts
    * {date}" when `challenge_day` is 0 (not started yet). */
   program_start_date: string | null; // ISO date (YYYY-MM-DD)
+  /** The real Program this journey belongs to - `null` only when nothing
+   * resolved at all (no plan, no Enrollment, or `has_multiple_enrollments`). */
+  program_name: string | null;
+  /** True when this student holds 2+ active Enrollments - every other field
+   * above is then the same as "no plan" (this page is single-calendar and
+   * never guesses which one to show); point the student to My Learning
+   * instead of implying they have nothing assigned. */
+  has_multiple_enrollments: boolean;
   last_7_days_active: boolean[];
   last_7_days_dates: string[];
   badges: Badge[];

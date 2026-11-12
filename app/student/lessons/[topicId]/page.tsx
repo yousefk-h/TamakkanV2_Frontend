@@ -34,7 +34,7 @@ export default function LessonPlayerPage() {
           <span aria-hidden="true" className="me-1.5 inline-block rtl:rotate-180">←</span>
           {enrollmentId ? t("lessonDetail.backToCourse") : t("lessonDetail.backToLessons")}
         </Link>
-        {topic && <CourseContent part="sheet" siblings={siblings} currentId={topic.id} />}
+        {topic && <CourseContent part="sheet" siblings={siblings} currentId={topic.id} objectives={topic.learning_objectives} vocabulary={topic.vocabulary} />}
       </div>
 
       {loading && <p className="text-sm text-muted">{t("lessonDetail.loading")}</p>}
@@ -50,7 +50,7 @@ export default function LessonPlayerPage() {
       {topic && (
         <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
           <PlayerMain key={topic.id} topic={topic} enrollmentId={enrollmentId} />
-          <CourseContent part="aside" siblings={siblings} currentId={topic.id} />
+          <CourseContent part="aside" siblings={siblings} currentId={topic.id} objectives={topic.learning_objectives} vocabulary={topic.vocabulary} />
         </div>
       )}
     </main>

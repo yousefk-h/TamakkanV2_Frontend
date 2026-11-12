@@ -138,12 +138,14 @@ export default function StudentChallengePage() {
     <main className="mx-auto max-w-[1510px] px-4 py-7 md:px-7.5">
       <section className="relative z-0 grid grid-cols-1 gap-6 overflow-hidden rounded-[20px] bg-gradient-to-br from-brand-hero-start via-brand-hero-mid to-brand-hero-end p-6 text-white shadow-(--shadow-brand-hero-strong) md:grid-cols-[1fr_140px] md:items-center md:p-7">
         <div>
-          <span className="text-xs font-bold tracking-wide opacity-90">{t("studentHome.challengeBadge")}</span>
+          <span className="text-xs font-bold tracking-wide opacity-90">
+            {progress?.program_name ? t("studentHome.journeyBadgeFor", { program: progress.program_name }) : t("studentHome.journeyBadgeGeneric")}
+          </span>
           <h2 className="my-2 text-[28px] tracking-tight md:text-[32px]">
-            {progressLoading ? t("common.loading") : progressError ? t("analytics.planError") : !progress?.program_start_date ? t("analytics.noPlan") : currentDay === 0 ? t("analytics.notStarted") : t("studentHome.challengeDay", { day: currentDay })}{" "}
+            {progressLoading ? t("common.loading") : progressError ? t("analytics.planError") : !progress?.program_start_date ? (progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsHeading") : t("analytics.noPlan")) : currentDay === 0 ? t("analytics.notStarted") : t("studentHome.challengeDay", { day: currentDay })}{" "}
             {currentDay > 0 && <em className="text-base font-medium not-italic opacity-80">{t("studentHome.challengeDayOf", { total: challengeTotal })}</em>}
           </h2>
-          <p className="m-0 text-sm opacity-90">{t("studentHome.challengeMomentum")}</p>
+          <p className="m-0 text-sm opacity-90">{progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsNotice") : t("studentHome.challengeMomentum")}</p>
           {progress && !progressError && <div className="mt-5 flex flex-wrap gap-4 text-sm">
             <b>{t("studentHome.challengeStreak", { count: progress?.current_streak ?? 0 })}</b>
             <span className="opacity-75">{t("studentHome.challengeRemaining", { count: Math.max(0, challengeTotal - currentDay) })}</span>
