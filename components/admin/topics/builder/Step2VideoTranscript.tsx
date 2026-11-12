@@ -1,9 +1,14 @@
 import { useState } from "react";
-import type { ReviewTranscriptEnglishResult, SourceDocument, TranscriptSource, TranscriptState } from "@/lib/api/types";
+import type { ReviewTranscriptEnglishResult, SourceDocument, TranscriptSegment, TranscriptSource, TranscriptState } from "@/lib/api/types";
 import { TRANSCRIPT_STATE_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function formatTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
 
 /** Splits `text` into segments flagged `changed` wherever one of `snippets`
  * (the exact `corrected` strings the review already returned) occurs -
@@ -28,6 +33,9 @@ export function Step2VideoTranscript({
   pollStatus,
   transcriptState,
   transcriptSource,
+  transcriptSegments,
+  transcriptError,
+  onSaveTranscriptSegments,
   editedTranscript,
   onEditedTranscriptChange,
   onApproveTranscript,
@@ -65,6 +73,9 @@ export function Step2VideoTranscript({
   pollStatus: "idle" | "polling" | "timeout";
   transcriptState: TranscriptState | null;
   transcriptSource: TranscriptSource | null;
+  transcriptSegments: TranscriptSegment[];
+  transcriptError: string | null;
+  onSaveTranscriptSegments: (segments: TranscriptSegment[]) => void;
   editedTranscript: string;
   onEditedTranscriptChange: (v: string) => void;
   onApproveTranscript: () => void;
@@ -101,6 +112,8 @@ export function Step2VideoTranscript({
   const hasSource = Boolean(youtubeUrl) || Boolean(pdfFilename) || Boolean(uploadedVideoFilename) || sourceDocuments.length > 0;
   const [textLabel, setTextLabel] = useState("Pasted notes");
   const [pastedText, setPastedText] = useState("");
+  const [segmentEdits, setSegmentEdits] = useState<TranscriptSegment[] | null>(null);
+  const reviewSegments = segmentEdits ?? transcriptSegments;
   return (
     <section className="mx-auto max-w-[720px]">
       <div className="mb-6">
@@ -247,14 +260,29 @@ export function Step2VideoTranscript({
       )}
       {pollStatus === "timeout" && <p className="mt-4 text-sm text-muted">{t("builder.stillProcessing")}</p>}
       {transcriptState && <p className="mt-4 text-sm text-muted">{t("builder.status", { state: TRANSCRIPT_STATE_LABEL[transcriptState] })}</p>}
+      {transcriptError && <p role="alert" className="mt-4 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">{transcriptError}</p>}
 
       {transcriptState === "pending_review" && (
         <div className="mt-5 grid gap-4 border-t border-line pt-5">
-          {(transcriptSource === "ai_generated" || transcriptSource === "local_asr" || transcriptSource === "mixed") && (
+          {(transcriptSource === "ai_generated" || transcriptSource === "gemini_video" || transcriptSource === "local_asr" || transcriptSource === "mixed") && (
             <p role="alert" className="m-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {t("builder.aiGeneratedTranscriptNotice")}
             </p>
           )}
+          <div className="grid gap-2">
+            <b className="text-sm text-ink">Timestamped segments</b>
+            <p className="m-0 text-xs text-muted">Correct each spoken segment, then save before approving. Timestamps come from Gemini and stay chronological.</p>
+            {reviewSegments.map((segment, index) => (
+              <label key={`${segment.start}-${index}`} className="grid gap-1 rounded-xl border border-line bg-bg p-3 text-sm">
+                <span className="font-bold text-brand-blue" dir="ltr">{formatTime(segment.start)} – {formatTime(segment.start + segment.duration)}</span>
+                <textarea rows={2} dir="auto" value={segment.text} onChange={e => {
+                  const next = reviewSegments.map((item, itemIndex) => itemIndex === index ? { ...item, text: e.target.value } : item);
+                  setSegmentEdits(next);
+                }} className="rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink" />
+              </label>
+            ))}
+            <button type="button" disabled={saving || reviewSegments.length === 0 || reviewSegments.some(segment => !segment.text.trim())} onClick={() => onSaveTranscriptSegments(reviewSegments)} className="w-fit rounded-[9px] border border-brand-blue px-4 py-2 text-sm font-bold text-brand-blue disabled:opacity-40">Save transcript changes</button>
+          </div>
           <label className="grid gap-1.5 text-sm font-bold text-ink">
             {t("builder.transcriptLabel")}
             <textarea

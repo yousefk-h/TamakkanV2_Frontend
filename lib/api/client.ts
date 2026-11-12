@@ -70,6 +70,7 @@ import type {
   ResetPasswordRequest,
   ReviewTranscriptEnglishRequest,
   ReviewTranscriptEnglishResult,
+  TranscriptSegment,
   ChallengeCalendar,
   AvatarTokenResponse,
   SessionPage,
@@ -416,6 +417,8 @@ export const topicsApi = {
    * check server logs and retry). */
   generateTranscript: (topicId: string) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/generate-transcript`, { method: "POST" }),
+  saveTranscriptSegments: (topicId: string, segments: TranscriptSegment[]) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/transcript-segments`, { method: "PUT", json: { segments } }),
   /** Administrator only. Terminal - once approved there is no route back.
    * `body.approved_transcript`, if given, ships the admin's edited wording
    * instead of the pipeline's auto-joined segments. */

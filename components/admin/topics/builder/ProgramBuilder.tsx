@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
 import { ApiError, levelProfilesApi, topicsApi } from "@/lib/api/client";
-import type { ArabicInterventionLevel, InteractiveVideoCheckpoint, LearningObjective, LessonExercise, LessonFlow, Level, LevelProfilePublic, ObjectiveSuggestion, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
+import type { ArabicInterventionLevel, InteractiveVideoCheckpoint, LearningObjective, LessonExercise, LessonFlow, Level, LevelProfilePublic, ObjectiveSuggestion, ReviewTranscriptEnglishResult, TranscriptSegment, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
 import { useTopic } from "@/lib/hooks/useTopics";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
@@ -119,6 +119,8 @@ export function ProgramBuilder({
   const [exerciseSuggestions, setExerciseSuggestions] = useState<{ index: number; exercises: LessonExercise[] } | null>(null);
   const [transcriptState, setTranscriptState] = useState<TranscriptState | null>(null);
   const [transcriptSource, setTranscriptSource] = useState<TranscriptSource | null>(null);
+  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
   // The admin's editable copy - seeded from the pipeline's fetched text, but
   // not tied to it after that, so typing here doesn't fight the poll effect.
   const [editedTranscript, setEditedTranscript] = useState("");
@@ -176,6 +178,8 @@ export function ProgramBuilder({
     if (!exercisesDirty) setExercises(loadedTopic.lesson_exercises ?? []);
     setTranscriptState(loadedTopic.transcript_state);
     setTranscriptSource(loadedTopic.transcript_source);
+    setTranscriptSegments(loadedTopic.raw_transcript);
+    setTranscriptError(loadedTopic.transcript_error);
     setEditedTranscript(formatSourceTranscript(loadedTopic.raw_transcript, loadedTopic.transcript_source_labels));
     setPdfFilename(loadedTopic.pdf_filename ?? null);
     setUploadedVideoFilename(loadedTopic.uploaded_video_filename ?? null);
@@ -203,6 +207,8 @@ export function ProgramBuilder({
         .then(t => {
           setTranscriptState(t.transcript_state);
           setTranscriptSource(t.transcript_source);
+          setTranscriptSegments(t.raw_transcript);
+          setTranscriptError(t.transcript_error);
           setEditedTranscript(formatSourceTranscript(t.raw_transcript, t.transcript_source_labels));
           if (t.transcript_state !== "queued" && t.transcript_state !== "extracting") {
             setPollStatus("idle");
@@ -408,6 +414,22 @@ export function ProgramBuilder({
       onSaved();
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : t("builderErrors.approveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveTranscriptSegments = async (segments: TranscriptSegment[]) => {
+    if (!topicId) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const updated = await topicsApi.saveTranscriptSegments(topicId, segments);
+      setTranscriptSegments(updated.raw_transcript);
+      setEditedTranscript(formatSourceTranscript(updated.raw_transcript, updated.transcript_source_labels));
+      onSaved();
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -856,6 +878,9 @@ export function ProgramBuilder({
                 pollStatus={pollStatus}
                 transcriptState={transcriptState}
                 transcriptSource={transcriptSource}
+                transcriptSegments={transcriptSegments}
+                transcriptError={transcriptError}
+                onSaveTranscriptSegments={handleSaveTranscriptSegments}
                 editedTranscript={editedTranscript}
                 onEditedTranscriptChange={setEditedTranscript}
                 onApproveTranscript={handleApproveTranscript}

@@ -415,7 +415,7 @@ export type TranscriptState = "queued" | "extracting" | "pending_review" | "appr
  * transcribing the video's audio (the fallback when no captions exist).
  * An AI-generated transcript can contain mishearings a real caption track
  * wouldn't, so the reviewing admin should know before approving it as-is. */
-export type TranscriptSource = "captions" | "ai_generated" | "local_asr" | "extracted_text" | "mixed";
+export type TranscriptSource = "captions" | "ai_generated" | "gemini_video" | "local_asr" | "extracted_text" | "mixed";
 export type SourceDocumentKind = "pdf" | "docx" | "pptx" | "text";
 
 export interface SourceDocument {
@@ -852,6 +852,8 @@ export interface TopicPublic extends BaseSchema {
   transcript_source_labels: string[];
   /** `null` until the first generation run completes. See `TranscriptSource`. */
   transcript_source: TranscriptSource | null;
+  /** Teacher-safe recoverable processing error; never provider diagnostics. */
+  transcript_error: string | null;
   /** Same as `TopicListItem.created_by_id`. */
   created_by_id: string | null;
   /** Same as `TopicListItem.lesson_status` - `null` for an Administrator/
