@@ -55,6 +55,7 @@ export function Step2VideoTranscript({
   onUploadVideo,
   onRemoveVideo,
   uploadingVideo,
+  videoUploadProgress,
   videoError,
 }: {
   youtubeUrl: string;
@@ -92,6 +93,7 @@ export function Step2VideoTranscript({
   onUploadVideo: (file: File) => void;
   onRemoveVideo: () => void;
   uploadingVideo: boolean;
+  videoUploadProgress: number | null;
   videoError: string | null;
 }) {
   const { t } = useI18n();
@@ -158,11 +160,14 @@ export function Step2VideoTranscript({
           <b className="text-sm text-ink">Upload a lesson video</b>
           <p className="m-0 text-xs leading-relaxed text-muted">Students can watch it in the lesson. We first use embedded captions, then local speech recognition if needed.</p>
           <label className={`relative mt-1 inline-flex min-h-11 w-fit items-center rounded-[9px] bg-brand-blue px-3.5 py-2 text-sm font-bold text-white ${isApproved ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
-            {uploadingVideo ? "Uploading…" : uploadedVideoFilename ? "Replace video" : "Choose video"}
+            {uploadingVideo ? `Uploading${videoUploadProgress === null ? "…" : ` ${videoUploadProgress}%`}` : uploadedVideoFilename ? "Replace video" : "Choose video"}
             <input type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" disabled={isApproved || uploadingVideo}
               onChange={e => { const file = e.target.files?.[0]; if (file) onUploadVideo(file); e.target.value = ""; }}
               className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed" />
           </label>
+          {uploadingVideo && <div className="h-2 w-full overflow-hidden rounded-full bg-brand-primary-pale" aria-label={`Video upload ${videoUploadProgress ?? 0}%`}>
+            <div className="h-full rounded-full bg-brand-blue transition-[width]" style={{ width: `${videoUploadProgress ?? 0}%` }} />
+          </div>}
           {uploadedVideoFilename && <div className="flex min-w-0 items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate" title={uploadedVideoFilename}>🎬 {uploadedVideoFilename}</span><button type="button" onClick={onRemoveVideo} disabled={isApproved || uploadingVideo} className="text-xs font-bold text-brand-coral disabled:opacity-40">Remove</button></div>}
           {videoError && <p role="alert" className="m-0 rounded-lg bg-brand-coral-pale px-3 py-2 text-sm text-brand-coral">{videoError}</p>}
         </div>

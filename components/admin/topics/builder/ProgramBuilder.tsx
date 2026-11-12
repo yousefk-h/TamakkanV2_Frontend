@@ -136,6 +136,7 @@ export function ProgramBuilder({
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [uploadedVideoFilename, setUploadedVideoFilename] = useState<string | null>(null);
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [learningObjectives, setLearningObjectives] = useState<LearningObjective[]>([]);
   const [objectivesApproved, setObjectivesApproved] = useState(false);
@@ -568,9 +569,10 @@ export function ProgramBuilder({
   const handleUploadVideo = async (file: File) => {
     if (!topicId) return;
     setUploadingVideo(true);
+    setVideoUploadProgress(0);
     setVideoError(null);
     try {
-      const updated = await topicsApi.uploadSourceVideo(topicId, file);
+      const updated = await topicsApi.uploadSourceVideo(topicId, file, setVideoUploadProgress);
       setUploadedVideoFilename(updated.uploaded_video_filename);
       // Same reset-to-`queued` behavior as the PDF upload above - start
       // extraction right away instead of waiting on a separate manual click.
@@ -583,6 +585,7 @@ export function ProgramBuilder({
       setVideoError(err instanceof ApiError ? err.message : "The video could not be uploaded.");
     } finally {
       setUploadingVideo(false);
+      setVideoUploadProgress(null);
     }
   };
 
@@ -880,6 +883,7 @@ export function ProgramBuilder({
                 onUploadVideo={handleUploadVideo}
                 onRemoveVideo={handleRemoveVideo}
                 uploadingVideo={uploadingVideo}
+                videoUploadProgress={videoUploadProgress}
                 videoError={videoError}
               />
             )}

@@ -187,6 +187,52 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return (await response.json()) as T;
 }
 
+type SourceVideoUploadSignature = {
+  timestamp: number;
+  signature: string;
+  api_key: string;
+  cloud_name: string;
+  public_id: string;
+};
+
+/** Uploads only the video bytes directly to the signed provider endpoint.
+ *
+ * The BFF continues to carry auth for the small signature/finalize calls.
+ * XHR is intentional: Fetch still has no broadly-supported upload progress
+ * event, while a teacher needs a truthful indication for an 80 MB source.
+ */
+function uploadSignedSourceVideo(
+  signature: SourceVideoUploadSignature,
+  file: File | Blob,
+  onProgress?: (percent: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("api_key", signature.api_key);
+    form.append("timestamp", String(signature.timestamp));
+    form.append("signature", signature.signature);
+    form.append("public_id", signature.public_id);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `https://api.cloudinary.com/v1_1/${encodeURIComponent(signature.cloud_name)}/video/upload`);
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress?.(Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100))));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "The video upload could not reach storage. Check your connection and try again."));
+    xhr.onabort = () => reject(new ApiError(0, "The video upload was cancelled."));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
+      let message = "The video could not be uploaded. Please try again.";
+      try {
+        const body = JSON.parse(xhr.responseText) as { error?: { message?: string } };
+        message = body.error?.message || message;
+      } catch { /* provider response was not JSON */ }
+      reject(new ApiError(xhr.status, message));
+    };
+    xhr.send(form);
+  });
+}
+
 // --- Auth -------------------------------------------------------------------
 
 export const authApi = {
@@ -442,10 +488,23 @@ export const topicsApi = {
    * if the topic has no youtube_urls). */
   removeThumbnail: (topicId: string) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/thumbnail`, { method: "DELETE" }),
-  uploadSourceVideo: (topicId: string, file: File | Blob) => {
-    const form = new FormData();
-    form.append("file", file);
-    return request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/source-video`, { method: "POST", form });
+  async uploadSourceVideo(topicId: string, file: File | Blob, onProgress?: (percent: number) => void): Promise<TopicPublic> {
+    const maxBytes = 80 * 1024 * 1024;
+    if (!file.size || file.size > maxBytes) throw new ApiError(422, "Choose a video smaller than 80 MB.");
+    const allowedVideoTypes = new Set(["video/mp4", "video/webm", "video/quicktime", "video/x-matroska"]);
+    if (!allowedVideoTypes.has(file.type)) throw new ApiError(422, "Choose an MP4, WebM, MOV or MKV video.");
+    const filename = file instanceof File && file.name ? file.name : "lesson-video.mp4";
+    const signature = await request<SourceVideoUploadSignature>(
+      `${BACKEND_PREFIX}/topics/${topicId}/source-video-signature`, {
+        method: "POST", json: { filename, content_type: file.type, size_bytes: file.size },
+      },
+    );
+    onProgress?.(0);
+    await uploadSignedSourceVideo(signature, file, onProgress);
+    return request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/source-video-finalize`, {
+      method: "POST",
+      json: { public_id: signature.public_id, filename },
+    });
   },
   removeSourceVideo: (topicId: string) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/source-video`, { method: "DELETE" }),
