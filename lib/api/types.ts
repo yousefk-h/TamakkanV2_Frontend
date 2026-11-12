@@ -340,6 +340,10 @@ export interface ExerciseAttemptHistoryItem {
   answer_display: string;
   correct: boolean | null;
   correct_option: number | null;
+  /** The true answer in the same display shape as `answer_display` - `null`
+   * for an open-ended kind (writing/speaking/reflection) with no single
+   * right answer to show. */
+  correct_answer_display: string | null;
   score: number | null;
   reviewed: boolean;
   superseded: boolean;
@@ -885,6 +889,10 @@ export interface LessonDraftJob {
   content_step: LessonDraftStepState;
   /** Exercise kind (e.g. "multiple_choice") -> its own step status. */
   exercise_steps: Record<string, LessonDraftStepState>;
+  /** Exercise kind -> the actual reason its step failed (quality-gate
+   * issue codes, a provider error, or a budget message) - present only for
+   * a kind whose `exercise_steps` entry is "failed". */
+  exercise_step_errors?: Record<string, string>;
   planned_calls: number;
   started_at: string | null;
   completed_at: string | null;

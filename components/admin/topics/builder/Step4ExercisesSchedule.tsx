@@ -133,11 +133,17 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
       {lessonDraftJob && <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
         <span className={`rounded-full px-3 py-1 font-bold ${stepBadgeClass[lessonDraftJob.content_step]}`}>{t("builder.lessonDraftContentStep")}: {stepLabel[lessonDraftJob.content_step]}</span>
         {Object.entries(lessonDraftJob.exercise_steps).map(([kind, state]) => (
-          <span key={kind} className={`rounded-full px-3 py-1 font-bold capitalize ${stepBadgeClass[state]}`}>{kind.replaceAll("_", " ")}: {stepLabel[state]}</span>
+          <span key={kind} title={lessonDraftJob.exercise_step_errors?.[kind]} className={`rounded-full px-3 py-1 font-bold capitalize ${stepBadgeClass[state]} ${state === "failed" ? "cursor-help" : ""}`}>{kind.replaceAll("_", " ")}: {stepLabel[state]}</span>
         ))}
       </div>}
       {lessonDraftJob?.state === "done" && <p className="mt-2 text-sm font-semibold text-brand-cyan">{t("builder.lessonDraftDone")}</p>}
-      {lessonDraftJob?.state === "failed" && <p className="mt-2 text-sm font-semibold text-brand-coral">{t("builder.lessonDraftPartialFailure")}</p>}
+      {lessonDraftJob?.state === "failed" && <div className="mt-2 grid gap-1">
+        <p className="m-0 text-sm font-semibold text-brand-coral">{t("builder.lessonDraftPartialFailure")}</p>
+        {Object.entries(lessonDraftJob.exercise_step_errors ?? {}).map(([kind, message]) => (
+          <p key={kind} className="m-0 text-xs text-brand-coral"><b className="capitalize">{kind.replaceAll("_", " ")}</b>: {message}</p>
+        ))}
+        <p className="m-0 text-xs text-muted">{t("builder.lessonDraftRetryHint")}</p>
+      </div>}
     </div>
 
     {draftExercises.length > 0 && <div className="rounded-2xl border border-line bg-card p-4">
@@ -181,7 +187,7 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
           {expandedIndex === index && <button type="button" onClick={() => setExpandedIndex(null)} className="absolute right-4 top-4 z-30 grid size-12 place-items-center rounded-xl border-2 border-brand-coral bg-brand-coral-pale text-2xl font-bold leading-none text-brand-coral shadow-sm transition hover:bg-brand-coral hover:text-white" aria-label="Close skill settings" title="Close">×</button>}
           <div className="flex flex-wrap items-start justify-between gap-2">
             <button type="button" onClick={() => setExpandedIndex(index)} className="min-w-0 flex-1 text-start"><span className="grid size-9 place-items-center rounded-xl bg-brand-primary-pale text-sm font-bold text-brand-blue">{index + 1}</span><b className="mt-3 block text-base capitalize">{exercise.kind.replaceAll("_", " ")}</b><span className="mt-1 block min-h-10 text-xs leading-relaxed text-muted">{exercise.prompt || "Click to configure this activity"}</span></button>
-            {expandedIndex === index && <div className="mr-12 flex gap-2"><BlockDragHandle index={index} label={t("builder.dragBlock", { number: index + 1 })} />
+            {expandedIndex === index && <div className="mr-12 flex flex-wrap gap-2"><BlockDragHandle index={index} label={t("builder.dragBlock", { number: index + 1 })} />
               <button type="button" disabled={index === 0} onClick={() => { const next = [...exercises]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; onExercisesChange(next); }} className="min-h-11 min-w-11 rounded-lg border border-line disabled:opacity-40" aria-label={t("builder.moveUp")}>↑</button>
               <button type="button" disabled={index === exercises.length - 1} onClick={() => { const next = [...exercises]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; onExercisesChange(next); }} className="min-h-11 min-w-11 rounded-lg border border-line disabled:opacity-40" aria-label={t("builder.moveDown")}>↓</button>
               <button type="button" onClick={() => onExercisesChange(exercises.filter((_, i) => i !== index))} className="min-h-11 rounded-lg border border-line px-3 text-sm text-brand-coral">{t("builder.removeExercise")}</button>

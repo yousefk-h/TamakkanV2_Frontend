@@ -31,26 +31,36 @@ function LessonExerciseRow({ studentId, topicId, enrollmentId, exercise, t }: {
     }
     setOpen(o => !o);
   };
+  const ungraded = exercise.latest_correct === null && exercise.latest_score === null;
   return <div className="border-t border-line py-2 first:border-0">
     <button type="button" onClick={toggle} className="flex w-full flex-wrap items-center justify-between gap-2 text-start text-sm">
       <span className="min-w-0"><b className="capitalize">{exercise.kind.replaceAll("_", " ")}</b> — {exercise.prompt}</span>
       <span className="flex shrink-0 items-center gap-2 text-xs">
-        {exercise.latest_correct !== null && <span className={exercise.latest_correct ? "font-bold text-brand-cyan" : "font-bold text-brand-coral"}>
-          {exercise.latest_correct ? t("studentDetail.exerciseCorrect") : t("studentDetail.exerciseIncorrect")}
-        </span>}
+        {exercise.latest_correct !== null && (
+          <span className={`rounded-full px-2 py-0.5 font-bold ${exercise.latest_correct ? "bg-brand-cyan/10 text-brand-cyan" : "bg-brand-coral/10 text-brand-coral"}`}>
+            {exercise.latest_correct ? `✓ ${t("studentDetail.exerciseCorrect")}` : `✗ ${t("studentDetail.exerciseIncorrect")}`}
+          </span>
+        )}
         {exercise.latest_score !== null && <span>{exercise.latest_score}/100</span>}
+        {ungraded && <span className="rounded-full bg-line px-2 py-0.5 font-bold text-muted">{t("studentDetail.notAutoGraded")}</span>}
         <span className="text-muted">{t("studentDetail.attemptCount", { count: exercise.attempt_count })}</span>
       </span>
     </button>
     {open && <div className="mt-2 grid gap-1.5 ps-3 text-xs">
       {history === null && <p className="text-muted">{t("common.loading")}</p>}
-      {history?.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-bg px-2 py-1.5">
-        <span className="min-w-0 truncate">{item.answer_display}</span>
-        <span className="flex shrink-0 items-center gap-2">
-          {item.correct !== null && <span className={item.correct ? "text-brand-cyan" : "text-brand-coral"}>{item.correct ? "✓" : "✗"}</span>}
-          {item.superseded && <span className="rounded-full bg-line px-2 py-0.5 text-muted">{t("studentDetail.superseded")}</span>}
-          <span className="text-muted">{formatDate(item.created_at)}</span>
-        </span>
+      {history?.map(item => <div key={item.id} className="grid gap-1 rounded-lg bg-bg px-2 py-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="min-w-0 truncate">{t("studentDetail.studentAnswer")}: {item.answer_display || "—"}</span>
+          <span className="flex shrink-0 items-center gap-2">
+            {item.correct !== null && <span className={item.correct ? "text-brand-cyan" : "text-brand-coral"}>{item.correct ? "✓" : "✗"}</span>}
+            {item.superseded && <span className="rounded-full bg-line px-2 py-0.5 text-muted">{t("studentDetail.superseded")}</span>}
+            <span className="text-muted">{formatDate(item.created_at)}</span>
+          </span>
+        </div>
+        {item.correct === false && item.correct_answer_display && (
+          <p className="m-0 text-brand-cyan">{t("studentDetail.correctAnswer")}: {item.correct_answer_display}</p>
+        )}
+        {item.feedback && <p className="m-0 italic text-muted">{item.feedback}</p>}
       </div>)}
     </div>}
   </div>;
