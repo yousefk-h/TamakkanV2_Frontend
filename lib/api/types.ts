@@ -36,6 +36,18 @@ export type Role = "student" | "teacher" | "administrator" | "root";
 export type PlanType = "standard" | "pro";
 export type Level = "beginner" | "intermediate" | "advanced";
 export type LessonFlow = "standard" | "interactive_video";
+export type InteractiveVideoCompletionRule = "submitted" | "correct";
+
+export interface InteractiveVideoCheckpoint {
+  id: string;
+  timestamp_seconds: number;
+  exercise_index: number;
+  completion_rule: InteractiveVideoCompletionRule;
+}
+
+export interface InteractiveVideoTimelineSuggestion extends InteractiveVideoCheckpoint {
+  rationale: string;
+}
 
 /** A center-defined label mapped to one stable proficiency band. The mapping
  * keeps existing calendars and agents compatible while allowing the center
@@ -863,6 +875,10 @@ export interface TopicPublic extends BaseSchema {
   /** Teacher-only flow configuration. Interactive video cannot be published
    * until its checkpoint player exists. */
   lesson_flow: LessonFlow | null;
+  /** Safe for Students: timestamps and exercise positions only; never keys. */
+  interactive_video_checkpoints: InteractiveVideoCheckpoint[];
+  /** Teacher-only AI proposals, empty for Students. */
+  interactive_video_drafts: InteractiveVideoTimelineSuggestion[];
   /** AI-suggested exercises awaiting teacher review (Slice C) - `[]` for a
    * Student, same disclosure rule as `raw_transcript`. Index into this
    * array is what `topicsApi.acceptDraftExercise`/`rejectDraftExercise`/
@@ -972,6 +988,10 @@ export interface TopicCreateRequest {
 
 /** Every field optional - PATCH only touches what's provided. */
 export type TopicUpdateRequest = Partial<TopicCreateRequest>;
+
+export interface InteractiveVideoTimelineUpdateRequest {
+  checkpoints: InteractiveVideoCheckpoint[];
+}
 
 // --- Calendar templates (app/schema/calendar_template.py) --------------
 

@@ -14,6 +14,7 @@ import { MariamSession } from "./MariamSession";
 import { PracticeModeSwitch, type PracticeChoice } from "./PracticeModeSwitch";
 import { VoiceSession } from "./VoiceSession";
 import { LessonExercises } from "./LessonExercises";
+import { InteractiveVideoLesson } from "./InteractiveVideoLesson";
 
 type PlayerTab = "vocabulary" | "overview" | "exercises" | "discuss";
 
@@ -31,6 +32,7 @@ export function PlayerMain({ topic, enrollmentId }: { topic: TopicPublic; enroll
   const [tab, setTab] = useState<PlayerTab>("vocabulary");
   const videoId = extractYouTubeId(topic.youtube_urls[0] ?? "");
   const hasWatchableVideo = Boolean(videoId || topic.uploaded_video_url);
+  const isInteractiveVideo = topic.interactive_video_checkpoints.length > 0;
   // Video-less (e.g. PDF-sourced) topics have no Overview tab and thus no way
   // to ever call setWatched(true) - unlock practice sessions immediately for
   // them instead of leaving the gate permanently closed.
@@ -217,6 +219,7 @@ export function PlayerMain({ topic, enrollmentId }: { topic: TopicPublic; enroll
 
         {tab === "overview" && (
           <div>
+            {isInteractiveVideo ? <InteractiveVideoLesson topic={topic} enrollmentId={enrollmentId} onDiscuss={() => setTab("discuss")} onWatched={() => setWatched(true)} /> : <>
             {/* Video-optional lesson source: a PDF-only (or otherwise
              * video-less) lesson has no player to show at all - rendering an
              * empty/broken-looking video box here would be worse than
@@ -268,6 +271,7 @@ export function PlayerMain({ topic, enrollmentId }: { topic: TopicPublic; enroll
                 Your browser does not support video playback.
               </video>
             )}
+            </>}
             <b className="text-sm">{t("player.discussionQuestions")}</b>
             {questions.length === 0 ? (
               <p className="mt-2 text-xs text-muted">{t("player.noWarmUpQuestions")}</p>

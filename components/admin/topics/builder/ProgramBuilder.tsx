@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
 import { ApiError, levelProfilesApi, topicsApi } from "@/lib/api/client";
-import type { ArabicInterventionLevel, LearningObjective, LessonExercise, LessonFlow, Level, LevelProfilePublic, ObjectiveSuggestion, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
+import type { ArabicInterventionLevel, InteractiveVideoCheckpoint, LearningObjective, LessonExercise, LessonFlow, Level, LevelProfilePublic, ObjectiveSuggestion, ReviewTranscriptEnglishResult, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
 import { useTopic } from "@/lib/hooks/useTopics";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
@@ -15,6 +15,7 @@ import { Step3LearningObjectives } from "./Step3LearningObjectives";
 import { Step4LessonFlow } from "./Step4LessonFlow";
 import { Step4Review } from "./Step4Review";
 import { Step4ExercisesSchedule } from "./Step4ExercisesSchedule";
+import { InteractiveVideoTimelineEditor } from "./InteractiveVideoTimelineEditor";
 import { LessonStudentPreview } from "./LessonStudentPreview";
 import { TopicProgramAssignments } from "./TopicProgramAssignments";
 
@@ -143,6 +144,8 @@ export function ProgramBuilder({
   const [suggestingObjectives, setSuggestingObjectives] = useState(false);
   const [objectivesError, setObjectivesError] = useState<string | null>(null);
   const [lessonFlow, setLessonFlow] = useState<LessonFlow>("standard");
+  const [persistedLessonFlow, setPersistedLessonFlow] = useState<LessonFlow>("standard");
+  const [interactiveCheckpoints, setInteractiveCheckpoints] = useState<InteractiveVideoCheckpoint[]>([]);
 
   // Seed the editable fields once the real topic loads (edit mode only -
   // create mode never has a `loadedTopic` until after step 1's first save).
@@ -179,6 +182,8 @@ export function ProgramBuilder({
     setObjectivesApproved(loadedTopic.objectives_approved ?? false);
     setObjectiveSuggestions(loadedTopic.objective_drafts ?? []);
     setLessonFlow(loadedTopic.lesson_flow ?? "standard");
+    setPersistedLessonFlow(loadedTopic.lesson_flow ?? "standard");
+    setInteractiveCheckpoints(loadedTopic.interactive_video_checkpoints ?? []);
   }, [loadedTopic, exercisesDirty]);
 
   useEffect(() => {
@@ -571,6 +576,7 @@ export function ProgramBuilder({
       // extraction right away instead of waiting on a separate manual click.
       setTranscriptState(updated.transcript_state);
       setTranscriptSource(updated.transcript_source);
+      await refetchTopic();
       await startTranscriptGeneration();
       onSaved();
     } catch (err) {
@@ -587,6 +593,7 @@ export function ProgramBuilder({
     try {
       await topicsApi.removeSourceVideo(topicId);
       setUploadedVideoFilename(null);
+      await refetchTopic();
       onSaved();
     } catch (err) {
       setVideoError(err instanceof ApiError ? err.message : "The video could not be removed.");
@@ -672,7 +679,9 @@ export function ProgramBuilder({
     if (!topicId) return;
     setSaving(true); setSaveError(null);
     try {
-      await topicsApi.update(topicId, { lesson_flow: lessonFlow });
+      const updated = await topicsApi.update(topicId, { lesson_flow: lessonFlow });
+      setPersistedLessonFlow(updated.lesson_flow ?? lessonFlow);
+      setInteractiveCheckpoints(updated.interactive_video_checkpoints ?? []);
       onSaved();
       setStep(5);
     } catch (err) {
@@ -732,6 +741,15 @@ export function ProgramBuilder({
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleReviewContinue = () => {
+    if (lessonFlow === "interactive_video" && !interactiveCheckpoints.length) {
+      setSaveError("Add at least one Interactive Video checkpoint before choosing a Program.");
+      return;
+    }
+    setSaveError(null);
+    setStep(8);
   };
 
   const handleGenerateExercises = async (index: number, count: number) => {
@@ -918,6 +936,7 @@ export function ProgramBuilder({
             )}
             {step === 7 && (
               <div className="mx-auto max-w-[720px]">
+                {lessonFlow === "interactive_video" && topicId && <InteractiveVideoTimelineEditor topicId={topicId} uploadedVideoUrl={loadedTopic?.uploaded_video_url ?? null} exercises={exercises} checkpoints={interactiveCheckpoints} drafts={loadedTopic?.interactive_video_drafts ?? []} canSuggest={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100 && objectivesApproved} enabled={persistedLessonFlow === "interactive_video"} onSaved={setInteractiveCheckpoints} />}
                 <Step4Review
                   level={level}
                   title={title}
@@ -984,7 +1003,7 @@ export function ProgramBuilder({
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
             ) : step === 7 ? (
-              <button type="button" disabled={saving} onClick={() => setStep(8)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+              <button type="button" disabled={saving} onClick={handleReviewContinue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {t("builder.continueBtn")}
               </button>
             ) : (

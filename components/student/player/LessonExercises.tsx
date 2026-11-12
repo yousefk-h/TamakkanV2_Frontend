@@ -46,7 +46,7 @@ function ExerciseImage({ src, alt }: { src: string; alt: string }) {
   </div>;
 }
 
-export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { topic: TopicPublic; enrollmentId?: string; onVideo: () => void; onDiscuss: () => void }) {
+export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyExerciseIndices, onAttemptSaved, onAttemptsLoaded }: { topic: TopicPublic; enrollmentId?: string; onVideo: () => void; onDiscuss: () => void; onlyExerciseIndices?: number[]; onAttemptSaved?: (attempt: ExerciseAttemptPublic) => void; onAttemptsLoaded?: (attempts: ExerciseAttemptPublic[]) => void }) {
   const { t } = useI18n();
   const [choices, setChoices] = useState<Record<number, number>>({});
   const [checked, setChecked] = useState<Record<number, boolean>>({});
@@ -91,6 +91,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
     setOrderChosen(freshChosen);
     exerciseAttemptsApi.mine(topic.id, enrollmentId).then(items => {
       if (!active) return;
+      onAttemptsLoaded?.(items);
       setAttempts(Object.fromEntries(items.map(item => [item.exercise_index, item])));
       setChecked(Object.fromEntries(items.filter(item => item.correct !== null).map(item => [item.exercise_index, true])));
       setChoices(Object.fromEntries(items.filter(item => typeof item.answer === "number").map(item => [item.exercise_index, item.answer as number])));
@@ -119,13 +120,14 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
     // re-runs on topic.updated_at, the one signal a new published revision
     // (and therefore new exercises) actually changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topic.id, topic.updated_at, enrollmentId]);
+  }, [topic.id, topic.updated_at, enrollmentId, onAttemptsLoaded]);
   const submit = async (index: number, answer: number | string | number[] | string[]) => {
     setBusyIndex(index);
     setErrors(current => ({ ...current, [index]: "" }));
     try {
       const attempt = await exerciseAttemptsApi.submit({ topic_id: topic.id, topic_updated_at: topic.updated_at, exercise_index: index, answer, enrollment_id: enrollmentId });
       setAttempts(current => ({ ...current, [index]: attempt }));
+      onAttemptSaved?.(attempt);
       if (attempt.correct !== null) setChecked(current => ({ ...current, [index]: true }));
     } catch (error) {
       setErrors(current => ({ ...current, [index]: error instanceof ApiError ? error.message : t("player.answerSaveFailed") }));
@@ -165,6 +167,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss }: { t
   return <div className="space-y-4 sm:space-y-5">
     <div className="rounded-2xl bg-brand-primary-pale p-4"><div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-extrabold text-ink">{t("player.exercisesTitle")}</h2><p className="mt-1 text-xs leading-relaxed text-muted">{t("player.exercisesSavedNotice")}</p></div><span className="grid size-11 shrink-0 place-items-center rounded-full bg-card text-sm font-extrabold text-brand-blue shadow-sm">{topic.lesson_exercises.length}</span></div>{loadError && <p role="alert" className="mt-2 text-sm text-brand-coral">{t("player.answersLoadFailed")}</p>}</div>
     {topic.lesson_exercises.map((exercise, index) => {
+      if (onlyExerciseIndices && !onlyExerciseIndices.includes(index)) return null;
       const deadlinePassed = !!exercise.deadline_at && new Date(exercise.deadline_at).getTime() < Date.now();
       const submissionLocked = deadlinePassed || (!!attempts[index] && !exercise.allow_resubmit);
       return <section key={index} className="rounded-3xl border border-line bg-card p-4 shadow-[0_8px_24px_rgb(var(--brand-shadow-rgb)/.07)] sm:p-5">

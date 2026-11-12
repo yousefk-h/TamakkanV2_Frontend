@@ -88,6 +88,8 @@ import type {
   TopicPublic,
   VoiceSessionEndRequest,
   TopicUpdateRequest,
+  InteractiveVideoCheckpoint,
+  InteractiveVideoTimelineSuggestion,
   UpdateLiveClassRequest,
   UpdateMeRequest,
   UpdateStudentEmailRequest,
@@ -350,6 +352,14 @@ export const topicsApi = {
   /** Administrator only. Partial update - omitted fields are left as-is. */
   update: (topicId: string, body: TopicUpdateRequest) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}`, { method: "PATCH", json: body }),
+  updateInteractiveVideoTimeline: (topicId: string, checkpoints: InteractiveVideoCheckpoint[]) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-timeline`, { method: "PUT", json: { checkpoints } }),
+  suggestInteractiveVideoTimeline: (topicId: string, refresh = false) =>
+    request<InteractiveVideoTimelineSuggestion[]>(`${BACKEND_PREFIX}/topics/${topicId}/suggest-interactive-video-timeline`, { method: "POST", params: { refresh } }),
+  acceptInteractiveVideoSuggestion: (topicId: string, index: number) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-drafts/${index}/accept`, { method: "POST" }),
+  rejectInteractiveVideoSuggestion: (topicId: string, index: number) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-drafts/${index}/reject`, { method: "POST" }),
   /** Teacher-reviewed suggestions only; nothing is saved until PATCH /topics/{id}. */
   draftExercises: (topicId: string, body: DraftExercisesRequest) =>
     request<DraftExercisesResponse>(`${BACKEND_PREFIX}/topics/${topicId}/draft-exercises`, { method: "POST", json: body }),
