@@ -41,7 +41,7 @@ function BlockDragHandle({ index, label }: { index: number; label: string }) {
     className={`min-h-11 min-w-11 cursor-grab touch-none rounded-lg border border-line bg-bg text-lg text-muted active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`} title={label}>⠿</button>;
 }
 
-export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty }: {
+export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty, interactiveVideo = false }: {
   topicId: string | null;
   exercises: LessonExercise[];
   onExercisesChange: (exercises: LessonExercise[]) => void;
@@ -63,6 +63,10 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
   onRegenerateDraftExercise: (index: number) => void;
   draftExerciseActionIndex: number | null;
   exercisesDirty: boolean;
+  /** Interactive activities live inside Video Studio. AI exercise drafting
+   * stays out of this screen until its dedicated future generation stage is
+   * actually shipped. */
+  interactiveVideo?: boolean;
 }) {
   const { t, locale } = useI18n();
   const exercises = rawExercises.map(withExerciseDefaults);
@@ -114,8 +118,10 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
   };
   const isLessonDraftRunning = lessonDraftJob?.state === "running";
 
+  const availableSkillKinds = interactiveVideo ? SKILL_KINDS.filter(kind => kind !== "speaking") : SKILL_KINDS;
+
   return <section className="mx-auto max-w-[1200px] space-y-7">
-    <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale/30 p-4">
+    {!interactiveVideo && <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale/30 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-lg font-bold text-ink">{t("builder.lessonDraftTitle")}</h3>
@@ -144,9 +150,9 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
         ))}
         <p className="m-0 text-xs text-muted">{t("builder.lessonDraftRetryHint")}</p>
       </div>}
-    </div>
+    </div>}
 
-    {draftExercises.length > 0 && <div className="rounded-2xl border border-line bg-card p-4">
+    {!interactiveVideo && draftExercises.length > 0 && <div className="rounded-2xl border border-line bg-card p-4">
       <h3 className="text-base font-bold text-ink">{t("builder.lessonDraftSuggestionsTitle")}</h3>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {draftExercises.map((suggestion, index) => <div key={index} className="rounded-xl border border-line bg-bg p-3">
@@ -169,7 +175,7 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
         <h3 className="px-1 text-sm font-bold text-ink">{t("builder.skillPaletteTitle")}</h3>
         <p className="px-1 text-xs text-muted">{t("builder.dragHint")}</p>
         <div className="mt-3 grid grid-cols-2 gap-2 lg:max-h-[70vh] lg:overflow-y-auto">
-          {SKILL_KINDS.map(kind => {
+          {availableSkillKinds.map(kind => {
             const labels = { video: t("builder.skillVideo"), vocab: t("builder.skillVocab"), image_completion: t("builder.skillImages"), listening: t("builder.skillListening"), grammar: t("builder.skillGrammar"), reading: t("builder.skillReading"), writing: t("builder.skillWriting"), speaking: t("builder.skillSpeaking"), game: t("builder.skillGame"), series: t("builder.skillSeries"), word_order: t("builder.skillWordOrder"), error_correction: t("builder.skillErrorCorrection"), dialogue_completion: t("builder.skillDialogue") };
             const notes = { video: t("builder.skillVideoDesc"), vocab: t("builder.skillVocabDesc"), image_completion: t("builder.skillImagesDesc"), listening: t("builder.skillListeningDesc"), grammar: t("builder.skillGrammarDesc"), reading: t("builder.skillReadingDesc"), writing: t("builder.skillWritingDesc"), speaking: t("builder.skillSpeakingDesc"), game: t("builder.skillGameDesc"), series: t("builder.skillSeriesDesc"), word_order: t("builder.skillWordOrderDesc"), error_correction: t("builder.skillErrorCorrectionDesc"), dialogue_completion: t("builder.skillDialogueDesc") };
             return <PaletteCard key={kind} kind={kind} label={labels[kind]} note={notes[kind]} disabled={kind === "video" && !hasVideo || kind === "vocab" && !hasVocabulary} onAdd={() => { onExercisesChange([...exercises, newExercise(kind)]); setExpandedIndex(null); }} />;
@@ -205,7 +211,7 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
             <b className="block">Core AI speaking practice</b>
             <p className="mb-0 mt-1 text-muted">This lesson already has its own Avatar/Cartoon context from step 3. Students open it from the lesson player; set its lesson time when placing this lesson on the Batch schedule.</p>
           </div>}
-          {AI_KINDS.has(exercise.kind) && <div className="mt-3 rounded-lg border border-brand-blue/20 bg-brand-primary-pale/40 p-3">
+          {!interactiveVideo && AI_KINDS.has(exercise.kind) && <div className="mt-3 rounded-lg border border-brand-blue/20 bg-brand-primary-pale/40 p-3">
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-xs font-semibold">{t("builder.aiQuestionCount")}
                 <select value={draftCount} onChange={event => setDraftCount(Number(event.target.value))} className="mt-1 block min-h-11 rounded-lg border border-line bg-card px-2 text-sm">{[1, 2, 3, 4, 5].map(count => <option key={count} value={count}>{count}</option>)}</select>

@@ -148,12 +148,32 @@ export function ProgramBuilder({
   const [persistedLessonFlow, setPersistedLessonFlow] = useState<LessonFlow>("standard");
   const [interactiveCheckpoints, setInteractiveCheckpoints] = useState<InteractiveVideoCheckpoint[]>([]);
   const [videoStudioDirty, setVideoStudioDirty] = useState(false);
+  // The first four decisions are shared. From the flow choice onward these
+  // are deliberately different journeys: Standard owns Avatar + exercises;
+  // Interactive owns all answerable activities and checkpoint authoring in
+  // Video Studio. Do not "insert" a Studio into the Standard sequence again.
   const BUILDER_STEPS = lessonFlow === "interactive_video"
-    ? [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5"), t("builder.stepName6"), "Video Studio", t("builder.stepName7"), t("builder.stepName8")]
-    : [t("builder.stepName1"), t("builder.stepName2"), t("builder.stepName3"), t("builder.stepName4"), t("builder.stepName5"), t("builder.stepName6"), t("builder.stepName7"), t("builder.stepName8")];
-  const STEP_BLURBS = lessonFlow === "interactive_video"
-    ? [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5"), t("builder.stepBlurb6"), "Place pauses on your uploaded video and attach exercises.", t("builder.stepBlurb7"), t("builder.stepBlurb8")]
-    : [t("builder.stepBlurb1"), t("builder.stepBlurb2"), t("builder.stepBlurb3"), t("builder.stepBlurb4"), t("builder.stepBlurb5"), t("builder.stepBlurb6"), t("builder.stepBlurb7"), t("builder.stepBlurb8")];
+    ? [
+      { id: "basics", name: t("builder.stepName1"), blurb: t("builder.stepBlurb1") },
+      { id: "source", name: t("builder.stepName2"), blurb: t("builder.stepBlurb2") },
+      { id: "objectives", name: t("builder.stepName3"), blurb: t("builder.stepBlurb3") },
+      { id: "flow", name: t("builder.stepName4"), blurb: t("builder.stepBlurb4") },
+      { id: "studio", name: "Video Studio", blurb: "Author every Interactive Video activity, then place its checkpoint on the uploaded video." },
+      { id: "timeline", name: "AI Timeline Generation", blurb: "Not available in this release. Author checkpoints in Video Studio." },
+      { id: "review", name: "Teacher review & edit", blurb: "Review the uploaded video, activities and saved checkpoints before publishing." },
+      { id: "publish", name: "Publish", blurb: t("builder.stepBlurb8") },
+    ]
+    : [
+      { id: "basics", name: t("builder.stepName1"), blurb: t("builder.stepBlurb1") },
+      { id: "source", name: t("builder.stepName2"), blurb: t("builder.stepBlurb2") },
+      { id: "objectives", name: t("builder.stepName3"), blurb: t("builder.stepBlurb3") },
+      { id: "flow", name: t("builder.stepName4"), blurb: t("builder.stepBlurb4") },
+      { id: "avatar", name: t("builder.stepName5"), blurb: t("builder.stepBlurb5") },
+      { id: "exercises", name: t("builder.stepName6"), blurb: t("builder.stepBlurb6") },
+      { id: "review", name: t("builder.stepName7"), blurb: t("builder.stepBlurb7") },
+      { id: "publish", name: t("builder.stepName8"), blurb: t("builder.stepBlurb8") },
+    ];
+  const currentStep = BUILDER_STEPS[step - 1]?.id;
 
   // Seed the editable fields once the real topic loads (edit mode only -
   // create mode never has a `loadedTopic` until after step 1's first save).
@@ -719,7 +739,7 @@ export function ProgramBuilder({
     } finally { setSaving(false); }
   };
 
-  const handleStep3Continue = async () => {
+  const handleStandardAvatarContinue = async () => {
     if (!topicId) return;
     setSaving(true);
     setSaveError(null);
@@ -749,7 +769,7 @@ export function ProgramBuilder({
     }
   };
 
-  const handleStep4Continue = async () => {
+  const saveExercisesAndContinue = async (nextStep: number) => {
     if (!topicId) return;
     const answeredKinds = new Set<LessonExercise["kind"]>(["multiple_choice", "image_completion", "listening", "grammar", "reading"]);
     if (exercises.some(exercise => !exercise.prompt.trim()
@@ -765,7 +785,7 @@ export function ProgramBuilder({
     try {
       await topicsApi.update(topicId, { lesson_exercises: exercises.map(exercise => ({ ...exercise, prompt: exercise.prompt.trim(), options: exercise.options.map(option => option.trim()) })) });
       onSaved();
-      setStep(7);
+      setStep(nextStep);
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : t("builderErrors.saveFailed"));
     } finally {
@@ -779,7 +799,7 @@ export function ProgramBuilder({
       return;
     }
     setSaveError(null);
-    setStep(lessonFlow === "interactive_video" ? 9 : 8);
+    setStep(8);
   };
 
   const handleVideoStudioContinue = () => {
@@ -787,12 +807,17 @@ export function ProgramBuilder({
       setSaveError("Save your timeline changes before continuing to review.");
       return;
     }
-    if (!interactiveCheckpoints.length) {
-      setSaveError("Add and save at least one Interactive Video checkpoint before reviewing this lesson.");
+    if (!loadedTopic?.uploaded_video_url) {
+      setSaveError("Upload a teacher-owned video in Source & transcript before continuing with Interactive Video.");
       return;
     }
-    setSaveError(null);
-    setStep(8);
+    if (!interactiveCheckpoints.length) {
+      setSaveError("Add and save at least one Interactive Video checkpoint before continuing.");
+      return;
+    }
+    // Exercises are authored inside Studio for this flow. Saving them here
+    // keeps their validation separate from the Standard Exercises step.
+    void saveExercisesAndContinue(6);
   };
 
   const handleGenerateExercises = async (index: number, count: number) => {
@@ -836,7 +861,7 @@ export function ProgramBuilder({
               <span className="text-xs font-extrabold tracking-wide text-muted">
                 {t("builder.stepOf", { step, total: BUILDER_STEPS.length, level: LEVEL_LABEL[level] })}
               </span>
-              <h2 className="mt-0.5 text-lg md:text-xl">{BUILDER_STEPS[step - 1]}</h2>
+              <h2 className="mt-0.5 text-lg md:text-xl">{BUILDER_STEPS[step - 1]?.name}</h2>
             </div>
             <div className="flex items-center gap-2">
               <button type="button" onClick={() => setShowPreview(true)} className="min-h-11 rounded-xl border border-line bg-bg px-3 text-sm font-bold text-brand-blue">{t("builder.preview")}</button>
@@ -846,15 +871,15 @@ export function ProgramBuilder({
 
           <nav aria-label="Lesson builder steps" className="shrink-0 border-b border-line bg-card px-4 py-3 md:px-8">
             <div className="mx-auto flex max-w-[1200px] gap-2 overflow-x-auto pb-1">
-              {BUILDER_STEPS.map((name, index) => {
+              {BUILDER_STEPS.map((builderStep, index) => {
                 const number = index + 1;
                 const available = !!topicId || index === 0;
-                return <details key={name} className="group min-w-[145px] shrink-0" open={step === number}>
+                return <details key={builderStep.id} className="group min-w-[145px] shrink-0" open={step === number}>
                   <summary onClick={() => { if (available) setStep(number); }} className={`flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-xl border px-3 text-sm font-bold transition-colors ${step === number ? "border-brand-blue bg-brand-primary-pale text-brand-blue" : "border-line bg-bg text-ink"} ${!available ? "pointer-events-none opacity-45" : ""}`}>
                     <span className={`grid size-6 shrink-0 place-items-center rounded-full text-xs ${step > number ? "bg-brand-cyan text-white" : step === number ? "bg-brand-blue text-white" : "bg-line text-muted"}`}>{step > number ? "✓" : number}</span>
-                    <span className="min-w-0 truncate">{name}</span>
+                    <span className="min-w-0 truncate">{builderStep.name}</span>
                   </summary>
-                  <p className="px-2 pt-1.5 text-xs leading-relaxed text-muted">{STEP_BLURBS[index]}</p>
+                  <p className="px-2 pt-1.5 text-xs leading-relaxed text-muted">{builderStep.blurb}</p>
                 </details>;
               })}
               <details className="min-w-[155px] shrink-0 rounded-xl border border-line bg-bg px-3 py-2">
@@ -871,7 +896,7 @@ export function ProgramBuilder({
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
-            {step === 1 && (
+            {currentStep === "basics" && (
               <Step1Basics
                 title={title}
                 onTitleChange={setTitle}
@@ -887,7 +912,7 @@ export function ProgramBuilder({
                 onOrderIndexChange={setOrderIndex}
               />
             )}
-            {step === 2 && (
+            {currentStep === "source" && (
               <Step2VideoTranscript
                 youtubeUrl={youtubeUrl}
                 onYoutubeUrlChange={setYoutubeUrl}
@@ -930,7 +955,7 @@ export function ProgramBuilder({
                 videoError={videoError}
               />
             )}
-            {step === 3 && (
+            {currentStep === "objectives" && (
               <Step3LearningObjectives
                 objectives={learningObjectives}
                 suggestions={objectiveSuggestions}
@@ -947,10 +972,10 @@ export function ProgramBuilder({
                 onRejectSuggestion={index => void handleObjectiveSuggestionAction(index, "reject")}
               />
             )}
-            {step === 4 && (
+            {currentStep === "flow" && (
               <Step4LessonFlow flow={lessonFlow} onChange={setLessonFlow} />
             )}
-            {step === 5 && (
+            {currentStep === "avatar" && (
               <Step3AvatarPrompt
                 title={title}
                 avatarPrompt={avatarPrompt}
@@ -977,25 +1002,41 @@ export function ProgramBuilder({
                 onRegenerateContent={handleRegenerateContent}
               />
             )}
-            {step === 6 && (
+            {currentStep === "exercises" && (
               <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
                 lessonDraftJob={lessonDraftJob} draftExercises={loadedTopic?.draft_exercises ?? []} onGenerateLessonDraft={handleGenerateLessonDraft} lessonDraftStarting={lessonDraftStarting} lessonDraftError={lessonDraftError} onAcceptDraftExercise={index => handleDraftExerciseAction(index, "accept")} onRejectDraftExercise={index => handleDraftExerciseAction(index, "reject")} onRegenerateDraftExercise={index => handleDraftExerciseAction(index, "regenerate")} draftExerciseActionIndex={draftExerciseActionIndex} exercisesDirty={exercisesDirty} />
             )}
-            {step === 7 && lessonFlow === "interactive_video" && topicId && (
-              <InteractiveVideoTimelineEditor
-                topicId={topicId}
-                uploadedVideoUrl={loadedTopic?.uploaded_video_url ?? null}
-                exercises={exercises}
-                checkpoints={interactiveCheckpoints}
-                transcriptSegments={transcriptSegments}
-                transcriptState={transcriptState}
-                enabled={persistedLessonFlow === "interactive_video"}
-                onSaved={setInteractiveCheckpoints}
-                onOpenExercises={() => setStep(6)}
-                onDirtyChange={setVideoStudioDirty}
-              />
+            {currentStep === "studio" && topicId && (
+              <section className="mx-auto max-w-[1240px] space-y-6">
+                <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale p-5">
+                  <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Interactive Video Studio</p>
+                  <h3 className="mt-1 text-xl font-extrabold text-ink">Author activities and checkpoints in one place</h3>
+                  <p className="mt-1 max-w-3xl text-sm text-muted">Interactive Video does not use the Avatar prompt or the Standard exercises path. Add answerable activities below, then attach each one to a saved point in your uploaded video.</p>
+                </div>
+                <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!loadedTopic?.uploaded_video_url} hasVocabulary={false} canAiDraft={false} generatingIndex={null} suggestions={null} onGenerate={() => undefined} onAcceptSuggestions={() => undefined} onDiscardSuggestions={() => undefined}
+                  lessonDraftJob={null} draftExercises={[]} onGenerateLessonDraft={() => undefined} lessonDraftStarting={false} lessonDraftError={null} onAcceptDraftExercise={() => undefined} onRejectDraftExercise={() => undefined} onRegenerateDraftExercise={() => undefined} draftExerciseActionIndex={null} exercisesDirty={exercisesDirty} interactiveVideo />
+                <InteractiveVideoTimelineEditor
+                  topicId={topicId}
+                  uploadedVideoUrl={loadedTopic?.uploaded_video_url ?? null}
+                  exercises={exercises}
+                  checkpoints={interactiveCheckpoints}
+                  transcriptSegments={transcriptSegments}
+                  transcriptState={transcriptState}
+                  enabled={persistedLessonFlow === "interactive_video"}
+                  onSaved={setInteractiveCheckpoints}
+                  onDirtyChange={setVideoStudioDirty}
+                />
+              </section>
             )}
-            {((step === 7 && lessonFlow === "standard") || (step === 8 && lessonFlow === "interactive_video")) && (
+            {currentStep === "timeline" && (
+              <section className="mx-auto max-w-[720px] rounded-2xl border border-amber-300 bg-amber-50 p-6 text-amber-950">
+                <p className="text-xs font-extrabold uppercase tracking-[0.14em]">Interactive Video</p>
+                <h3 className="mt-1 text-xl font-extrabold">AI Timeline Generation is not available yet</h3>
+                <p className="mt-2 text-sm leading-relaxed">No timeline suggestions are generated on this screen. Use Video Studio to author, review and save teacher-owned checkpoints manually; this avoids presenting an unfinished AI action as functional.</p>
+                <button type="button" onClick={() => setStep(5)} className="mt-4 min-h-11 rounded-lg border border-amber-700 px-4 text-sm font-bold">Back to Video Studio</button>
+              </section>
+            )}
+            {currentStep === "review" && lessonFlow === "standard" && (
               <div className="mx-auto max-w-[720px]">
                 <Step4Review
                   level={level}
@@ -1011,7 +1052,14 @@ export function ProgramBuilder({
                 />
               </div>
             )}
-            {((step === 8 && lessonFlow === "standard") || (step === 9 && lessonFlow === "interactive_video")) && (
+            {currentStep === "review" && lessonFlow === "interactive_video" && (
+              <section className="mx-auto max-w-[720px] space-y-4">
+                <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale p-5"><p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Interactive Video review</p><h3 className="mt-1 text-xl font-extrabold text-ink">Review the teacher-authored video lesson</h3><p className="mt-1 text-sm text-muted">This flow has no Avatar prompt or Standard exercise stage. Students will see only the uploaded video and its saved checkpoints.</p></div>
+                <dl className="grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-line bg-card p-4"><dt className="text-xs font-bold uppercase text-muted">Video</dt><dd className="mt-1 font-bold text-ink">{loadedTopic?.uploaded_video_url ? "Ready" : "Missing"}</dd></div><div className="rounded-xl border border-line bg-card p-4"><dt className="text-xs font-bold uppercase text-muted">Activities</dt><dd className="mt-1 font-bold text-ink">{exercises.length}</dd></div><div className="rounded-xl border border-line bg-card p-4"><dt className="text-xs font-bold uppercase text-muted">Saved checkpoints</dt><dd className="mt-1 font-bold text-ink">{interactiveCheckpoints.length}</dd></div></dl>
+                <button type="button" onClick={() => setStep(5)} className="min-h-11 rounded-lg border border-brand-blue px-4 text-sm font-bold text-brand-blue">Edit in Video Studio</button>
+              </section>
+            )}
+            {currentStep === "publish" && (
               <div className="mx-auto max-w-[720px]">
                 <div className="mb-5 rounded-2xl border border-brand-blue/20 bg-brand-primary-pale p-4"><h3 className="text-lg font-bold text-ink">Choose where students will learn this lesson</h3><p className="mt-1 text-sm text-muted">Select a Program, its learning stage, then publish when it is ready. This is separate from writing the lesson so nothing is assigned by accident.</p></div>
                 {topicId && !hideProgramAssignments ? <TopicProgramAssignments topicId={topicId} /> : <p className="rounded-2xl border border-dashed border-line bg-card p-5 text-sm text-muted">This lesson will be placed from the Batch curriculum after you finish.</p>}
@@ -1028,7 +1076,7 @@ export function ProgramBuilder({
             >
               {t("builder.back")}
             </button>
-            {step === 1 ? (
+            {currentStep === "basics" ? (
               <button
                 type="button"
                 disabled={saving || !title.trim()}
@@ -1037,36 +1085,40 @@ export function ProgramBuilder({
               >
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 2 ? (
+            ) : currentStep === "source" ? (
               <button type="button" disabled={saving} onClick={handleStep2Continue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 3 ? (
+            ) : currentStep === "objectives" ? (
               <button type="button" disabled={savingObjectives} onClick={handleObjectivesContinue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {savingObjectives ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 4 ? (
+            ) : currentStep === "flow" ? (
               <button type="button" disabled={saving} onClick={handleLessonFlowContinue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 5 ? (
+            ) : currentStep === "avatar" ? (
               <button
                 type="button"
                 disabled={saving}
-                onClick={handleStep3Continue}
+                onClick={handleStandardAvatarContinue}
                 className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
               >
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 6 ? (
-              <button type="button" disabled={saving} onClick={handleStep4Continue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+            ) : currentStep === "exercises" ? (
+              <button type="button" disabled={saving} onClick={() => void saveExercisesAndContinue(7)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {saving ? t("builder.saving") : t("builder.continueBtn")}
               </button>
-            ) : step === 7 && lessonFlow === "interactive_video" ? (
+            ) : currentStep === "studio" ? (
               <button type="button" disabled={saving} onClick={handleVideoStudioContinue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {t("builder.continueBtn")}
               </button>
-            ) : ((step === 7 && lessonFlow === "standard") || (step === 8 && lessonFlow === "interactive_video")) ? (
+            ) : currentStep === "timeline" ? (
+              <button type="button" disabled={saving} onClick={() => setStep(7)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+                {t("builder.continueBtn")}
+              </button>
+            ) : currentStep === "review" ? (
               <button type="button" disabled={saving} onClick={handleReviewContinue} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {t("builder.continueBtn")}
               </button>

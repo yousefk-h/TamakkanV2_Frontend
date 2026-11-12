@@ -5,10 +5,12 @@ import { test } from "node:test";
 const studio = fs.readFileSync(new URL("../components/admin/topics/builder/InteractiveVideoTimelineEditor.tsx", import.meta.url), "utf8");
 const builder = fs.readFileSync(new URL("../components/admin/topics/builder/ProgramBuilder.tsx", import.meta.url), "utf8");
 
-test("interactive flow inserts a dedicated Video Studio before review", () => {
+test("interactive flow uses Video Studio before its dedicated disabled timeline and review", () => {
   assert.match(builder, /"Video Studio"/);
-  assert.match(builder, /step === 7 && lessonFlow === "interactive_video"/);
-  assert.match(builder, /step === 8 && lessonFlow === "interactive_video"/);
+  assert.match(builder, /id: "studio"/);
+  assert.match(builder, /id: "timeline"/);
+  assert.match(builder, /currentStep === "studio"/);
+  assert.match(builder, /currentStep === "review" && lessonFlow === "interactive_video"/);
   assert.match(builder, /handleVideoStudioContinue/);
 });
 
@@ -19,6 +21,8 @@ test("Video Studio uses the uploaded video, saved checkpoints, and reviewed tran
   assert.match(studio, /Add checkpoint at/);
   assert.match(studio, /Complete preview activity & resume/);
   assert.doesNotMatch(studio, /suggestInteractiveVideo|Gemini|draftInteractive/i);
+  assert.doesNotMatch(studio, /onOpenExercises/);
+  assert.match(studio, /Create a compatible exercise above first/);
 });
 
 test("Video Studio preview is local and never records learner activity", () => {

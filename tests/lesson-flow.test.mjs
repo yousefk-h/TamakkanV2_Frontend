@@ -14,6 +14,24 @@ test("lesson flow is an explicit persisted builder step", () => {
   assert.match(builder, /InteractiveVideoTimelineEditor/);
 });
 
+test("Standard and Interactive paths use separate step definitions after flow selection", () => {
+  assert.match(builder, /id: "avatar"/);
+  assert.match(builder, /id: "exercises"/);
+  assert.match(builder, /id: "studio"/);
+  assert.match(builder, /id: "timeline"/);
+  assert.match(builder, /currentStep === "avatar"/);
+  assert.match(builder, /currentStep === "studio"/);
+  assert.match(builder, /currentStep === "timeline"/);
+  assert.match(builder, /AI Timeline Generation is not available yet/);
+});
+
+test("Interactive authoring stays in Video Studio and does not expose Standard AI drafting", () => {
+  assert.match(builder, /interactiveVideo \/>/);
+  assert.match(builder, /Interactive Video does not use the Avatar prompt or the Standard exercises path/);
+  assert.match(builder, /saveExercisesAndContinue\(6\)/);
+  assert.match(builder, /setStep\(8\)/);
+});
+
 test("the lesson-flow selector is author-only and cannot write student progress", () => {
   assert.doesNotMatch(flowStep, /topicsApi\.|exercise|attempt|progress|fetch\s*\(/i);
 });
