@@ -40,6 +40,22 @@ export function InteractiveVideoTimelineEditor({
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Fix 4: the native <video> had no loading/error UI at all - a 404'd or
+  // otherwise failed source just silently showed a bare background. Tracks
+  // the real media lifecycle (not a CSS/sizing concern - that part was
+  // already correct) so a failure gets a clear message and a working retry.
+  const [videoLoadState, setVideoLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [videoRetryKey, setVideoRetryKey] = useState(0);
+  const retryVideo = () => {
+    setVideoLoadState("loading");
+    setVideoRetryKey(key => key + 1);
+    videoRef.current?.load();
+  };
+  // A new/changed source URL (new upload, or switching topics) starts its own
+  // fresh load/error lifecycle - never keep showing a stale error/loading
+  // state from a previous video.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setVideoLoadState("loading"); }, [uploadedVideoUrl]);
   const [items, setItems] = useState(checkpoints);
   const [selectedId, setSelectedId] = useState<string | null>(checkpoints[0]?.id ?? null);
   const [duration, setDuration] = useState(0);
@@ -61,6 +77,13 @@ export function InteractiveVideoTimelineEditor({
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setItems(checkpoints); setSelectedId(current => checkpoints.some(item => item.id === current) ? current : checkpoints[0]?.id ?? null); setSaved(true); onDirtyChange(false); }, [checkpoints, onDirtyChange]);
   const eligibleExercises = useMemo(() => exercises.map((exercise, index) => ({ exercise, index })).filter(({ exercise }) => SUPPORTED.has(exercise.kind)), [exercises]);
+  const eligibleIndexSet = useMemo(() => new Set(eligibleExercises.map(({ index }) => index)), [eligibleExercises]);
+  // Fix 2: an "exercise" checkpoint whose exercise_index now points at a
+  // deleted/incompatible activity (e.g. an exercise kind change, or a delete
+  // elsewhere left it stale) - flagged inline instead of hiding the whole
+  // Studio UI behind one generic banner.
+  const isOrphanedCheckpoint = (item: InteractiveVideoCheckpoint) =>
+    (item.kind ?? "exercise") === "exercise" && (item.exercise_index === undefined || !eligibleIndexSet.has(item.exercise_index));
   const selectedIndex = items.findIndex(item => item.id === selectedId);
   const selected = selectedIndex >= 0 ? items[selectedIndex] : null;
   const sorted = [...items].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
@@ -133,13 +156,25 @@ export function InteractiveVideoTimelineEditor({
 
   if (!enabled) return <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale p-5 text-sm text-ink">Save the Interactive Video flow choice first. Your draft exercises stay untouched.</div>;
   if (!uploadedVideoUrl) return <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950"><b>Add a video to start editing.</b><p className="mt-1">Interactive playback needs a teacher-uploaded video. YouTube can remain a lesson source, but controllable YouTube checkpoints are not available yet.</p></div>;
-  if (!eligibleExercises.length) return <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950"><b>Create a compatible exercise above first.</b><p className="mt-1">Interactive activities are authored in this Video Studio and each checkpoint reuses one answerable activity.</p></div>;
+  // Fix 2: only collapse to the generic banner when there is truly nothing to
+  // show - no compatible exercise to attach a NEW checkpoint to, AND no
+  // existing checkpoints at all. An orphaned checkpoint (one that used to
+  // point at a now-deleted/incompatible exercise) still gets shown below,
+  // clearly flagged, instead of being hidden behind this banner.
+  if (!eligibleExercises.length && !items.length) return <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950"><b>Create a compatible exercise above first.</b><p className="mt-1">Interactive activities are authored in this Video Studio and each checkpoint reuses one answerable activity.</p></div>;
 
   return <section className="mx-auto max-w-[1240px] space-y-5">
     <header className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-xl font-extrabold text-ink">Place the pauses</h3><p className="mt-1 max-w-2xl text-sm text-muted">Click a point on the video timeline to adjust it. The student experience is previewed separately, so this screen stays for authoring.</p></div><div className={`rounded-full px-3 py-2 text-sm font-bold ${saving ? "bg-brand-primary-pale text-brand-blue" : saved ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{saving ? "Saving…" : saved ? "Saved" : "Unsaved changes"}</div></header>
     <div className="min-w-0 space-y-4">
-        <div className="min-w-0 overflow-hidden rounded-2xl border border-line bg-brand-navy shadow-card"><video ref={videoRef} src={uploadedVideoUrl} controls preload="metadata" className="block aspect-video h-auto w-full max-w-full object-contain" onLoadedMetadata={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onTimeUpdate={handleTime} onSeeking={event => setCurrentTime(event.currentTarget.currentTime)} /><div className="flex items-center justify-between bg-brand-navy px-4 py-3 text-sm text-white"><span>{formatTime(currentTime)}</span><span className="text-white/70">{hasMediaDuration ? formatTime(duration) : `Transcript timing: ${formatTime(timelineDuration)}`}</span></div></div>
-        <div className="rounded-2xl border border-line bg-card p-4 sm:p-5"><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-extrabold text-ink">Timeline</h4><p className="text-xs text-muted">Click the ruler to seek. Select a marker to edit it.</p></div><button type="button" onClick={addAtPlayhead} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">+ Add checkpoint at {formatTime(currentTime)}</button></div><div className="relative pt-8"><div className="flex justify-between text-xs text-muted">{[0, .25, .5, .75, 1].map(value => <span key={value}>{formatTime(timelineDuration * value)}</span>)}</div><div role="slider" tabIndex={0} aria-label="Video timeline" aria-valuemin={0} aria-valuemax={Math.round(timelineDuration)} aria-valuenow={Math.round(currentTime)} onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); seek(((event.clientX - rect.left) / rect.width) * timelineDuration); }} onKeyDown={event => { if (event.key === "ArrowLeft") seek(currentTime - 5); if (event.key === "ArrowRight") seek(currentTime + 5); }} className="relative mt-3 h-14 cursor-pointer rounded-xl bg-brand-primary-pale ring-offset-2 focus:outline-none focus:ring-2 focus:ring-brand-blue"><span className="absolute inset-y-0 w-0.5 bg-brand-coral" style={{ left: `${timelineDuration ? (currentTime / timelineDuration) * 100 : 0}%` }} />{sorted.map((item, index) => <button key={item.id} type="button" aria-label={`Checkpoint ${index + 1} at ${formatTime(item.timestamp_seconds)}`} onClick={event => { event.stopPropagation(); setSelectedId(item.id); seek(item.timestamp_seconds); }} className={`absolute top-3 grid size-8 -translate-x-1/2 place-items-center rounded-full border-2 text-xs font-extrabold shadow-sm ${selectedId === item.id ? "border-brand-navy bg-brand-cyan text-white" : "border-brand-blue bg-card text-brand-blue"}`} style={{ left: `${timelineDuration ? Math.min(100, (item.timestamp_seconds / timelineDuration) * 100) : 0}%` }}>{index + 1}</button>)}</div></div>{!items.length && <div className="mt-4 rounded-xl border border-dashed border-brand-blue bg-brand-primary-pale p-5 text-center text-sm text-ink"><b>No checkpoints yet.</b><p className="mt-1 text-muted">Seek to a learning moment and add your first checkpoint.</p></div>}</div>
+        {!eligibleExercises.length && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><b>No compatible activities available.</b><p className="mt-1">Create a compatible exercise above to add a new checkpoint. Existing checkpoints are still shown below.</p></div>}
+        <div className="relative min-w-0 overflow-hidden rounded-2xl border border-line bg-brand-navy shadow-card">
+          <video key={videoRetryKey} ref={videoRef} src={uploadedVideoUrl} controls preload="metadata" className="block aspect-video h-auto w-full max-w-full object-contain" onLoadStart={() => setVideoLoadState("loading")} onCanPlay={() => setVideoLoadState("ready")} onLoadedData={() => setVideoLoadState("ready")} onError={() => setVideoLoadState("error")} onLoadedMetadata={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onTimeUpdate={handleTime} onSeeking={event => setCurrentTime(event.currentTarget.currentTime)} />
+          {videoLoadState === "loading" && <div role="status" className="pointer-events-none absolute inset-0 grid place-items-center bg-brand-navy/70 text-sm font-bold text-white">Loading video…</div>}
+          {videoLoadState === "error" && <div role="alert" className="absolute inset-0 grid place-items-center bg-brand-navy/90 p-4 text-center text-sm text-white"><div><p className="font-bold">Video could not be loaded.</p><p className="mt-1 text-white/70">Check the source and try again.</p><button type="button" onClick={retryVideo} className="mt-3 min-h-10 rounded-lg bg-white px-4 text-sm font-bold text-brand-navy">Retry</button></div></div>}
+          <div className="flex items-center justify-between bg-brand-navy px-4 py-3 text-sm text-white"><span>{formatTime(currentTime)}</span><span className="text-white/70">{hasMediaDuration ? formatTime(duration) : `Transcript timing: ${formatTime(timelineDuration)}`}</span></div>
+        </div>
+        <div className="rounded-2xl border border-line bg-card p-4 sm:p-5"><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-extrabold text-ink">Timeline</h4><p className="text-xs text-muted">Click the ruler to seek. Select a marker to edit it.</p></div><button type="button" onClick={addAtPlayhead} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">+ Add checkpoint at {formatTime(currentTime)}</button></div><div className="relative pt-8"><div className="flex justify-between text-xs text-muted">{[0, .25, .5, .75, 1].map(value => <span key={value}>{formatTime(timelineDuration * value)}</span>)}</div><div role="slider" tabIndex={0} aria-label="Video timeline" aria-valuemin={0} aria-valuemax={Math.round(timelineDuration)} aria-valuenow={Math.round(currentTime)} onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); seek(((event.clientX - rect.left) / rect.width) * timelineDuration); }} onKeyDown={event => { if (event.key === "ArrowLeft") seek(currentTime - 5); if (event.key === "ArrowRight") seek(currentTime + 5); }} className="relative mt-3 h-14 cursor-pointer rounded-xl bg-brand-primary-pale ring-offset-2 focus:outline-none focus:ring-2 focus:ring-brand-blue"><span className="absolute inset-y-0 w-0.5 bg-brand-coral" style={{ left: `${timelineDuration ? (currentTime / timelineDuration) * 100 : 0}%` }} />{sorted.map((item, index) => <button key={item.id} type="button" aria-label={`Checkpoint ${index + 1} at ${formatTime(item.timestamp_seconds)}${isOrphanedCheckpoint(item) ? " - activity removed" : ""}`} onClick={event => { event.stopPropagation(); setSelectedId(item.id); seek(item.timestamp_seconds); }} className={`absolute top-3 grid size-8 -translate-x-1/2 place-items-center rounded-full border-2 text-xs font-extrabold shadow-sm ${selectedId === item.id ? "border-brand-navy bg-brand-cyan text-white" : isOrphanedCheckpoint(item) ? "border-brand-coral bg-brand-coral-pale text-brand-coral" : "border-brand-blue bg-card text-brand-blue"}`} style={{ left: `${timelineDuration ? Math.min(100, (item.timestamp_seconds / timelineDuration) * 100) : 0}%` }}>{index + 1}</button>)}</div></div>{!items.length && <div className="mt-4 rounded-xl border border-dashed border-brand-blue bg-brand-primary-pale p-5 text-center text-sm text-ink"><b>No checkpoints yet.</b><p className="mt-1 text-muted">Seek to a learning moment and add your first checkpoint.</p></div>}
+        {items.some(isOrphanedCheckpoint) && <ul className="mt-4 space-y-1.5">{sorted.map((item, index) => isOrphanedCheckpoint(item) && <li key={item.id} className="rounded-lg border border-brand-coral/40 bg-brand-coral-pale px-3 py-2 text-xs font-bold text-brand-coral">Checkpoint {index + 1} ({formatTime(item.timestamp_seconds)}): This checkpoint&apos;s activity was removed — reassign or delete it.</li>)}</ul>}</div>
         {selected && (() => {
           const kind = selected.kind ?? "exercise";
           const isPractice = kind === "practice_with_mariam";
@@ -159,7 +194,14 @@ export function InteractiveVideoTimelineEditor({
                 <label className="text-sm font-bold text-ink sm:col-span-2">Opening line<textarea value={selected.opening_line ?? ""} onChange={event => change(selected.id, { opening_line: event.target.value })} rows={2} className="mt-2 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm" placeholder="What Mariam says first" /></label>
                 {practiceInvalid(selected) && <p role="alert" className="text-xs font-bold text-brand-coral sm:col-span-2">A conversation goal and an opening line are both required.</p>}
               </> : <>
-                <label className="text-sm font-bold text-ink">Required activity<select value={selected.exercise_index} onChange={event => change(selected.id, { exercise_index: Number(event.target.value) })} className="mt-2 min-h-11 w-full rounded-lg border border-line bg-bg px-3 text-sm">{eligibleExercises.map(({ exercise, index }) => <option key={index} value={index}>#{index + 1} · {exercise.kind.replaceAll("_", " ")} · {exercise.prompt.slice(0, 52) || "Untitled activity"}</option>)}</select></label>
+                {isOrphanedCheckpoint(selected) && <p role="alert" className="text-xs font-bold text-brand-coral sm:col-span-2">This checkpoint&apos;s activity was removed — reassign or delete it.</p>}
+                <label className="text-sm font-bold text-ink">Required activity{eligibleExercises.length
+                  ? <select value={eligibleIndexSet.has(selected.exercise_index ?? -1) ? selected.exercise_index : ""} onChange={event => change(selected.id, { exercise_index: Number(event.target.value) })} className="mt-2 min-h-11 w-full rounded-lg border border-line bg-bg px-3 text-sm">
+                      {!eligibleIndexSet.has(selected.exercise_index ?? -1) && <option value="" disabled>Choose a replacement activity…</option>}
+                      {eligibleExercises.map(({ exercise, index }) => <option key={index} value={index}>#{index + 1} · {exercise.kind.replaceAll("_", " ")} · {exercise.prompt.slice(0, 52) || "Untitled activity"}</option>)}
+                    </select>
+                  : <p className="mt-2 text-xs text-muted">No compatible activity exists. Create one above, or delete this checkpoint.</p>}
+                </label>
                 <label className="text-sm font-bold text-ink sm:col-span-2">Resume video when<select value={selected.completion_rule} onChange={event => change(selected.id, { completion_rule: event.target.value as InteractiveVideoCheckpoint["completion_rule"] })} className="mt-2 min-h-11 w-full rounded-lg border border-line bg-bg px-3 text-sm"><option value="submitted">the student submits the activity</option><option value="correct">the answer is correct</option></select></label>
               </>}
             </div>

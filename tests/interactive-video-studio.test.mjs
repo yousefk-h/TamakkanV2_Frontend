@@ -16,7 +16,7 @@ test("interactive flow plans questions before opening Video Studio for editing",
 });
 
 test("Video Studio uses the uploaded video, saved checkpoints, and reviewed transcript only", () => {
-  assert.match(studio, /<video ref=/);
+  assert.match(studio, /<video key=\{videoRetryKey\} ref=/);
   assert.match(studio, /updateInteractiveVideoTimeline/);
   assert.match(studio, /transcriptSegments\.map/);
   assert.match(studio, /Add checkpoint at/);
