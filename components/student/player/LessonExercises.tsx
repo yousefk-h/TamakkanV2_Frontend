@@ -6,6 +6,7 @@ import { ApiError, exerciseAttemptsApi, submissionsApi } from "@/lib/api/client"
 import { Recorder } from "./Recorder";
 import type { ExerciseAttemptPublic, TopicPublic } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
+import { activityKindLabel } from "@/lib/player/activityKind";
 
 const ANSWER_KINDS = new Set(["multiple_choice", "image_completion", "listening", "grammar", "reading"]);
 
@@ -33,6 +34,14 @@ function positionsForSubmittedWords(displayedWords: string[], submittedWords: st
     remaining.splice(matchIndex, 1);
   }
   return positions;
+}
+
+/** A distinct, non-text-only visual state for "try again" vs. "correct" on a checked attempt - not just the wording
+ * changing, but the whole feedback box's color/border, so a wrong answer reads as clearly different at a glance. */
+function resultBoxClass(correct: boolean | null | undefined): string {
+  return correct
+    ? "mt-4 rounded-2xl border-2 border-green-600 bg-green-50 p-3 text-sm font-semibold text-green-900"
+    : "mt-4 rounded-2xl border-2 border-brand-coral bg-brand-coral-pale p-3 text-sm font-semibold text-brand-coral";
 }
 
 function ExerciseImage({ src, alt }: { src: string; alt: string }) {
@@ -171,7 +180,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyE
       const deadlinePassed = !!exercise.deadline_at && new Date(exercise.deadline_at).getTime() < Date.now();
       const submissionLocked = deadlinePassed || (!!attempts[index] && !exercise.allow_resubmit);
       return <section key={index} className="rounded-3xl border border-line bg-card p-4 shadow-[0_8px_24px_rgb(var(--brand-shadow-rgb)/.07)] sm:p-5">
-      <div className="flex items-center justify-between gap-2"><span className="text-xs font-extrabold text-brand-blue">{t("player.exerciseProgress", { current: index + 1, total: topic.lesson_exercises.length })}</span><span className="rounded-full bg-bg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted">{exercise.kind.replaceAll("_", " ")}</span></div>
+      <div className="flex items-center justify-between gap-2"><span className="text-xs font-extrabold text-brand-blue">{t("player.exerciseProgress", { current: index + 1, total: topic.lesson_exercises.length })}</span><span className="rounded-full bg-bg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted">{activityKindLabel(exercise.kind, t)}</span></div>
       <h3 className="mb-4 mt-3 text-base font-extrabold leading-relaxed text-ink sm:text-lg">{exercise.prompt}</h3>
 
       {exercise.kind === "video" && <button type="button" onClick={onVideo} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">{t("player.openVideo")}</button>}
@@ -194,7 +203,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyE
         <div className="space-y-2.5">{exercise.options.map((option, optionIndex) => <label key={optionIndex} className={`flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border-2 p-3.5 text-sm leading-relaxed transition-colors ${checked[index] && optionIndex === attempts[index]?.correct_option ? "border-green-600 bg-green-50 text-green-900" : checked[index] && choices[index] === optionIndex ? "border-brand-coral bg-brand-coral-pale" : choices[index] === optionIndex ? "border-brand-blue bg-brand-primary-pale" : "border-line bg-bg"}`}>
           <input type="radio" name={`exercise-${index}`} checked={choices[index] === optionIndex} disabled={!!checked[index]} onChange={() => setChoices(current => ({ ...current, [index]: optionIndex }))} className="size-5 shrink-0 accent-brand-blue" /><span className="min-w-0 [overflow-wrap:anywhere]">{option}</span>
         </label>)}</div>
-        {!checked[index] ? <button type="button" disabled={submissionLocked || choices[index] === undefined || busyIndex === index} onClick={() => void submit(index, choices[index])} className="mt-4 min-h-12 w-full rounded-2xl bg-brand-blue px-4 text-sm font-extrabold text-white shadow-[0_6px_16px_rgb(var(--brand-shadow-rgb)/.2)] disabled:opacity-40 sm:w-auto sm:min-w-40">{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button> : <div role="status" className="mt-4 rounded-2xl bg-bg p-3 text-sm font-semibold"><p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.tryAgainNextTime")}{exercise.explanation ? ` — ${exercise.explanation}` : ""}</p>{!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}</div>}
+        {!checked[index] ? <button type="button" disabled={submissionLocked || choices[index] === undefined || busyIndex === index} onClick={() => void submit(index, choices[index])} className="mt-4 min-h-12 w-full rounded-2xl bg-brand-blue px-4 text-sm font-extrabold text-white shadow-[0_6px_16px_rgb(var(--brand-shadow-rgb)/.2)] disabled:opacity-40 sm:w-auto sm:min-w-40">{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button> : <div role="status" className={resultBoxClass(attempts[index]?.correct)}><p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.tryAgainNextTime")}{exercise.explanation ? ` — ${exercise.explanation}` : ""}</p>{!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}</div>}
       </>}
 
       {exercise.kind === "game" && <div className="space-y-2">
@@ -204,7 +213,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyE
             <option value="">{t("player.chooseMatch")}</option>{[...exercise.pairs].reverse().map((reversedPair, reversedIndex) => <option key={reversedIndex} value={reversedPair.right}>{reversedPair.right}</option>)}
           </select>
         </div>)}
-        {!checked[index] ? <button type="button" disabled={submissionLocked || busyIndex === index || exercise.pairs.some((_, i) => !matches[index]?.[i])} onClick={() => void submit(index, exercise.pairs.map((_, i) => matches[index][i]))} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button> : <div role="status" className="text-sm font-semibold"><p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.tryAgainNextTime")}</p>{!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}</div>}
+        {!checked[index] ? <button type="button" disabled={submissionLocked || busyIndex === index || exercise.pairs.some((_, i) => !matches[index]?.[i])} onClick={() => void submit(index, exercise.pairs.map((_, i) => matches[index][i]))} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button> : <div role="status" className={resultBoxClass(attempts[index]?.correct)}><p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.tryAgainNextTime")}</p>{!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}</div>}
       </div>}
 
       {exercise.kind === "word_order" && <div className="space-y-3">
@@ -235,7 +244,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyE
             className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40"
           >{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button>
         ) : (
-          <div role="status" className="text-sm font-semibold">
+          <div role="status" className={resultBoxClass(attempts[index]?.correct)}>
             <p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.wordOrderCorrectWas", { sentence: exercise.ordering_words.join(" ") })}</p>
             {!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}
           </div>
@@ -245,12 +254,12 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyE
       {exercise.kind === "error_correction" && <div className="space-y-3">
         <p className="whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 text-sm italic text-ink">{exercise.content}</p>
         <label className="block text-sm text-muted">{t("player.yourCorrection")}
-          <input value={responses[index] ?? ""} maxLength={500} disabled={!!checked[index] || submissionLocked} onChange={event => setResponses(current => ({ ...current, [index]: event.target.value }))} className="mt-2 block min-h-11 w-full rounded-lg border border-line bg-card p-3 text-ink" />
+          <input value={responses[index] ?? ""} maxLength={500} disabled={!!checked[index] || submissionLocked} onChange={event => setResponses(current => ({ ...current, [index]: event.target.value }))} onFocus={event => event.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" })} className="mt-2 block min-h-11 w-full rounded-lg border border-line bg-card p-3 text-ink" />
         </label>
         {!checked[index] ? (
           <button type="button" disabled={submissionLocked || busyIndex === index || !(responses[index] ?? "").trim()} onClick={() => void submit(index, (responses[index] ?? "").trim())} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button>
         ) : (
-          <div role="status" className="text-sm font-semibold">
+          <div role="status" className={resultBoxClass(attempts[index]?.correct)}>
             <p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.tryAgainNextTime")}{exercise.explanation ? ` — ${exercise.explanation}` : ""}</p>
             {!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}
           </div>
@@ -269,6 +278,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyE
                 value={dialogueAnswers[index]?.[blankPosition] ?? ""}
                 disabled={!!checked[index] || submissionLocked}
                 onChange={event => setDialogueAnswers(current => ({ ...current, [index]: { ...current[index], [blankPosition]: event.target.value } }))}
+                onFocus={event => event.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" })}
                 placeholder={t("player.dialogueBlankPlaceholder")}
                 aria-label={`${t("player.dialogueBlankPlaceholder")} (${turn.speaker})`}
                 className="min-h-11 flex-1 rounded-lg border-2 border-dashed border-brand-blue bg-card px-3 text-sm text-ink"
@@ -282,7 +292,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyE
             className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40"
           >{busyIndex === index ? t("player.savingAnswer") : t("player.checkAnswer")}</button>
         ) : (
-          <div role="status" className="text-sm font-semibold">
+          <div role="status" className={resultBoxClass(attempts[index]?.correct)}>
             <p>{attempts[index]?.correct ? t("player.correctAnswer") : t("player.dialoguePartialScore", { score: attempts[index]?.score ?? 0 })}</p>
             {!attempts[index]?.correct && exercise.allow_resubmit && !deadlinePassed && <button type="button" onClick={() => retry(index)} className="min-h-11 text-brand-blue">{t("player.retryAnswer")}</button>}
           </div>
@@ -290,7 +300,7 @@ export function LessonExercises({ topic, enrollmentId, onVideo, onDiscuss, onlyE
       </div>}
 
       {(["writing", "reflection"] as string[]).includes(exercise.kind) && <label className="block text-sm text-muted">{t("player.yourResponse")}
-        <textarea value={responses[index] ?? ""} maxLength={5000} onChange={event => setResponses(current => ({ ...current, [index]: event.target.value }))} rows={4} className="mt-2 block w-full rounded-lg border border-line bg-card p-3 text-ink" />
+        <textarea value={responses[index] ?? ""} maxLength={5000} onChange={event => setResponses(current => ({ ...current, [index]: event.target.value }))} onFocus={event => event.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" })} rows={4} className="mt-2 block w-full rounded-lg border border-line bg-card p-3 text-ink" />
         {exercise.kind === "writing" && <span className="mt-1 block text-xs">{t("player.wordCount", { count: (responses[index] ?? "").trim().split(/\s+/).filter(Boolean).length, minimum: exercise.min_words })}</span>}
       </label>}
       {(["writing", "reflection"] as string[]).includes(exercise.kind) && <div className="mt-2">
