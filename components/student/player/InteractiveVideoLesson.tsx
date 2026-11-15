@@ -5,6 +5,8 @@ import { topicsApi } from "@/lib/api/client";
 import type { ExerciseAttemptPublic, InteractiveVideoCheckpoint, TopicPublic } from "@/lib/api/types";
 import { CheckpointMariamSession } from "./CheckpointMariamSession";
 import { LessonExercises } from "./LessonExercises";
+import { activityKindLabel } from "@/lib/player/activityKind";
+import { useI18n } from "@/lib/i18n/LocaleProvider";
 
 /** Defaults a checkpoint without a `kind` to "exercise" - same convention the backend applies server-side, kept
  * here too so older/unmigrated checkpoints (and any client code still constructing one without `kind`) keep working
@@ -27,7 +29,9 @@ function completed(checkpoint: InteractiveVideoCheckpoint, attempt: ExerciseAtte
  * has no reliable playback API, and pretending to pause it would be a bypass.
  */
 export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatched }: { topic: TopicPublic; enrollmentId?: string; onDiscuss: () => void; onWatched: () => void }) {
+  const { t } = useI18n();
   const stageRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [attempts, setAttempts] = useState<Record<number, ExerciseAttemptPublic>>({});
   // "practice_with_mariam" completion, keyed by checkpoint id (not exercise_index - these checkpoints have none).
@@ -41,8 +45,15 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
   const [retryNonce, setRetryNonce] = useState<Record<string, number>>({});
   const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null);
   const [lessonFullscreen, setLessonFullscreen] = useState(false);
+  // iOS Safari (every WebKit-based iOS browser) has no `Element.requestFullscreen()` support on an arbitrary
+  // non-<video> element - only `<video>.webkitEnterFullscreen()`, which fullscreens the video alone, exactly what
+  // this stage deliberately avoids (see the component doc above). When the real Fullscreen API is unavailable or a
+  // call to it fails, this flips on instead: a CSS-only overlay (`position: fixed; inset: 0`) using the SAME stage
+  // layout/state/button, so "Full lesson screen" still works meaningfully there, just without OS fullscreen chrome.
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
   const checkpoints = useMemo(() => [...topic.interactive_video_checkpoints].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds), [topic.interactive_video_checkpoints]);
   const active = checkpoints.find(item => item.id === activeCheckpointId) ?? null;
+  const activeIndex = active ? checkpoints.findIndex(item => item.id === active.id) : -1;
 
   // Fetches every Practice with Mariam checkpoint's completion once per checkpoint set, so an earlier-in-the-timeline
   // one already completed on a prior visit doesn't wrongly block `enforceSeek`/`enforceCheckpoint` below. A failed
@@ -133,26 +144,50 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
     setActiveCheckpointId(null);
   }, []);
   useEffect(() => {
-    const syncFullscreen = () => setLessonFullscreen(document.fullscreenElement === stageRef.current);
+    // Only the real Fullscreen API fires this event - a pseudoFullscreen toggle never touches
+    // `document.fullscreenElement`, so this never fights the manual pseudo-fullscreen state below.
+    const syncFullscreen = () => { if (!pseudoFullscreen) setLessonFullscreen(document.fullscreenElement === stageRef.current); };
     document.addEventListener("fullscreenchange", syncFullscreen);
     return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, [pseudoFullscreen]);
+  const enterPseudoFullscreen = useCallback(() => {
+    setPseudoFullscreen(true);
+    setLessonFullscreen(true);
+  }, []);
+  const exitPseudoFullscreen = useCallback(() => {
+    setPseudoFullscreen(false);
+    setLessonFullscreen(false);
   }, []);
   const toggleLessonFullscreen = useCallback(async () => {
+    if (pseudoFullscreen) { exitPseudoFullscreen(); return; }
+    const supportsRealFullscreen = typeof document !== "undefined" && document.fullscreenEnabled && typeof stageRef.current?.requestFullscreen === "function";
+    if (!supportsRealFullscreen) { enterPseudoFullscreen(); return; }
     try {
       if (document.fullscreenElement === stageRef.current) await document.exitFullscreen();
       else await stageRef.current?.requestFullscreen();
     } catch {
-      // Fullscreen is a convenience only; native playback and answering still work.
+      // Real Fullscreen API present but this call failed (e.g. a browser-specific gesture restriction) - fall back
+      // to the same CSS-only pseudo-fullscreen rather than leaving the button inert. Native playback and answering
+      // still work either way.
+      enterPseudoFullscreen();
     }
-  }, []);
+  }, [pseudoFullscreen, enterPseudoFullscreen, exitPseudoFullscreen]);
+  // Mobile "scroll to activity" affordance: when a checkpoint becomes active on a narrow (sub-`lg`) layout, bring
+  // the activity panel into view instead of leaving it off-screen below a tall paused video. Desktop/tablet already
+  // shows the panel beside the video in the same viewport, so this is scoped to narrow widths only.
+  useEffect(() => {
+    if (!active || typeof window === "undefined" || window.innerWidth >= 1024) return;
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [active]);
 
   if (!topic.uploaded_video_url) return <p role="alert" className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">This interactive lesson is unavailable because its uploaded video is missing.</p>;
-  return <div ref={stageRef} className={lessonFullscreen ? "grid h-[100dvh] grid-rows-[minmax(0,1fr)_auto] gap-0 bg-brand-navy p-4 lg:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)] lg:grid-rows-1" : "space-y-4"}>
-    <div className={lessonFullscreen ? "relative min-h-0 overflow-hidden rounded-2xl bg-black" : "relative overflow-hidden rounded-2xl bg-brand-navy shadow-card"}>
+  return <div ref={stageRef} className={`${lessonFullscreen ? "grid h-[100dvh] grid-rows-[minmax(0,1fr)_auto] gap-0 bg-brand-navy p-4 lg:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)] lg:grid-rows-1" : "space-y-4"}${pseudoFullscreen ? " fixed inset-0 z-50 overflow-y-auto" : ""}`}>
+    <div className={`relative min-h-0 overflow-hidden ${lessonFullscreen ? "interactive-video-media rounded-2xl bg-black" : "interactive-video-media rounded-2xl bg-brand-navy shadow-card"}`}>
       <video ref={videoRef} src={topic.uploaded_video_url} controls controlsList="nofullscreen" playsInline preload="metadata" className={lessonFullscreen ? "h-full w-full object-contain" : "aspect-video w-full object-contain"} onPlay={onWatched} onTimeUpdate={enforceCheckpoint} onSeeking={enforceSeek} onLoadedMetadata={enforceSeek}>Your browser does not support video playback.</video>
       <button type="button" onClick={() => void toggleLessonFullscreen()} className="absolute right-3 top-3 z-10 min-h-10 rounded-lg bg-brand-navy/90 px-3 text-sm font-bold text-white shadow-sm ring-1 ring-white/30">{lessonFullscreen ? "Exit full lesson screen" : "Full lesson screen"}</button>
     </div>
-    {active ? <section aria-live="polite" className={lessonFullscreen ? "min-h-0 overflow-y-auto rounded-b-2xl bg-card p-4 lg:rounded-b-none lg:rounded-r-2xl" : "rounded-2xl border-2 border-brand-blue bg-brand-primary-pale p-3 sm:p-4"}>
+    {active ? <section ref={panelRef} aria-live="polite" className={`checkpoint-panel-in checkpoint-panel-safe ${lessonFullscreen ? "min-h-0 overflow-y-auto rounded-b-2xl bg-card p-4 lg:rounded-b-none lg:rounded-r-2xl" : "rounded-2xl border-2 border-brand-blue bg-brand-primary-pale p-3 sm:p-4"}`}>
+      <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted">{t("player.exerciseProgress", { current: activeIndex + 1, total: checkpoints.length })} · {activityKindLabel(checkpointKind(active), t)}</p>
       {checkpointKind(active) === "practice_with_mariam" ? <>
         <p className="mb-3 text-sm font-extrabold text-brand-blue">Video paused · practice with Mariam to continue</p>
         {practiceIssue === active.id ? <div className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">
@@ -176,6 +211,6 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
         omits it; the type is optional purely to accommodate that other kind. */}
         <LessonExercises topic={topic} enrollmentId={enrollmentId} onVideo={() => undefined} onDiscuss={onDiscuss} onlyExerciseIndices={[active.exercise_index!]} onAttemptSaved={receiveAttempt} onAttemptsLoaded={receiveAttempts} />
       </>}
-    </section> : <p className={lessonFullscreen ? "flex items-center justify-center rounded-b-2xl bg-card p-4 text-center text-sm text-muted lg:rounded-b-none lg:rounded-r-2xl" : "rounded-xl bg-bg p-3 text-sm text-muted"}>Watch the video. It will pause at your lesson activities.</p>}
+    </section> : <p className={`checkpoint-panel-in ${lessonFullscreen ? "flex items-center justify-center rounded-b-2xl bg-card p-4 text-center text-sm text-muted lg:rounded-b-none lg:rounded-r-2xl" : "rounded-xl bg-bg p-3 text-sm text-muted"}`}>Watch the video. It will pause at your lesson activities.</p>}
   </div>;
 }

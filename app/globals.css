@@ -250,3 +250,18 @@ html[data-brand="tamakkan"] .desktop-sidebar :focus-visible { outline-color: #b9
 .turn-dots i:nth-child(2) { animation-delay: .2s; }
 .turn-dots i:nth-child(3) { animation-delay: .4s; }
 @keyframes turn-dots { 0%, 80%, 100% { opacity: .3; } 40% { opacity: 1; } }
+
+/* Interactive Video student player (InteractiveVideoLesson.tsx): a brief, non-distracting fade/slide when a
+   checkpoint panel appears (mirrors `.caption-in` above) - removed entirely by the global prefers-reduced-motion
+   rule already defined at the top of this file. */
+.checkpoint-panel-in { animation: checkpoint-panel-in .2s ease-out; }
+@keyframes checkpoint-panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* Same `env(safe-area-inset-*)` pattern as `.responsive-dialog`/`.conversation-sheet` above, so a text-input
+   activity (writing/dialogue completion) inside the checkpoint panel isn't clipped by a notch or home indicator. */
+.checkpoint-panel-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+/* Landscape phones / very short screens: cap the video so the checkpoint panel below it stays reachable without
+   the video alone consuming the whole short viewport height - same spirit as `.avatar-stage-spacer`'s own
+   landscape rule above. */
+@media (max-height: 480px) and (orientation: landscape) {
+  .interactive-video-media { max-height: 55vh; max-height: 55dvh; }
+}

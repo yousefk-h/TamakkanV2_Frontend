@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { test } from "node:test";
 
 const player = fs.readFileSync(new URL("../components/student/player/InteractiveVideoLesson.tsx", import.meta.url), "utf8");
+const lessonExercises = fs.readFileSync(new URL("../components/student/player/LessonExercises.tsx", import.meta.url), "utf8");
+const activityKind = fs.readFileSync(new URL("../lib/player/activityKind.ts", import.meta.url), "utf8");
 
 test("Interactive Video fullscreen belongs to the lesson shell, not only the native video", () => {
   assert.match(player, /stageRef\.current\?\.requestFullscreen/);
@@ -48,4 +50,38 @@ test("a failed or incomplete practice session offers Retry/Exit instead of silen
   assert.match(player, /Retry/);
   assert.match(player, /Exit for now/);
   assert.match(player, /exitPractice/);
+});
+
+test("the active checkpoint panel renders an 'Activity X of Y' progress indicator computed from the already-sorted checkpoints array", () => {
+  assert.match(player, /const activeIndex = active \? checkpoints\.findIndex\(item => item\.id === active\.id\) : -1;/);
+  assert.match(player, /t\("player\.exerciseProgress", \{ current: activeIndex \+ 1, total: checkpoints\.length \}\)/);
+});
+
+test("the iOS Safari pseudo-fullscreen fallback exists and is gated on real Fullscreen API support, not just always-on", () => {
+  assert.match(player, /const \[pseudoFullscreen, setPseudoFullscreen\] = useState\(false\);/);
+  assert.match(player, /document\.fullscreenEnabled && typeof stageRef\.current\?\.requestFullscreen === "function"/);
+  assert.match(player, /enterPseudoFullscreen/);
+  assert.match(player, /exitPseudoFullscreen/);
+  // Still the same button/state the existing tests above assert on - the fallback augments it, it doesn't replace it.
+  assert.match(player, /Full lesson screen/);
+  assert.match(player, /Exit full lesson screen/);
+  // The pseudo-fullscreen overlay is CSS-only (fixed + inset-0), not a second copy of the real Fullscreen API call.
+  assert.match(player, /fixed inset-0 z-50/);
+});
+
+test("no raw internal exercise_index/completion_rule/checkpoint kind string is interpolated directly into student-facing JSX text", () => {
+  // `exercise_index`/`completion_rule`/`.kind` appear throughout this file in comparisons, lookups and comments
+  // (all fine) - what must never appear is one spliced directly into rendered text, e.g. `{active.kind}` or
+  // `{checkpoint.completion_rule}` or `{active.exercise_index}` standing alone as display copy.
+  for (const file of [player, lessonExercises]) {
+    assert.doesNotMatch(file, /\{(?:active|checkpoint|item)\.completion_rule\}/);
+    assert.doesNotMatch(file, /\{(?:active|checkpoint|item)\.kind\}/);
+    assert.doesNotMatch(file, /\{(?:active|checkpoint|item)\.exercise_index\}/);
+    assert.doesNotMatch(file, /\{exercise\.kind\}/);
+    assert.doesNotMatch(file, /exercise\.kind\.replaceAll/);
+  }
+  // Instead, both render through the shared, translated label helper.
+  assert.match(player, /activityKindLabel\(checkpointKind\(active\), t\)/);
+  assert.match(lessonExercises, /activityKindLabel\(exercise\.kind, t\)/);
+  assert.match(activityKind, /practice_with_mariam: "player\.activityTypeMariam"/);
 });
