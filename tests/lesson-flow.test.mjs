@@ -25,9 +25,11 @@ test("Standard and Interactive paths use separate step definitions after flow se
   assert.match(builder, /AI Timeline Generation is not available yet/);
 });
 
-test("Interactive authoring stays in Video Studio and does not expose Standard AI drafting", () => {
+test("Interactive authoring stays in Video Studio, with activity drafts but no AI timeline", () => {
   assert.match(builder, /interactiveVideo \/>/);
   assert.match(builder, /Interactive Video does not use the Avatar prompt or the Standard exercises path/);
+  assert.match(builder, /onGenerate=\{handleGenerateExercises\}/);
+  assert.match(builder, /AI Timeline Generation is not available yet/);
   assert.match(builder, /saveExercisesAndContinue\(6\)/);
   assert.match(builder, /setStep\(8\)/);
 });

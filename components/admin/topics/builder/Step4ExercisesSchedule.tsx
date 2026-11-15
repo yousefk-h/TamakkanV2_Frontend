@@ -63,9 +63,9 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
   onRegenerateDraftExercise: (index: number) => void;
   draftExerciseActionIndex: number | null;
   exercisesDirty: boolean;
-  /** Interactive activities live inside Video Studio. AI exercise drafting
-   * stays out of this screen until its dedicated future generation stage is
-   * actually shipped. */
+  /** Interactive activities live inside Video Studio. Individual activity
+   * drafts use the same reviewed source workflow as Standard lessons; only
+   * the separate AI timeline-generation stage remains unavailable. */
   interactiveVideo?: boolean;
 }) {
   const { t, locale } = useI18n();
@@ -211,7 +211,7 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
             <b className="block">Core AI speaking practice</b>
             <p className="mb-0 mt-1 text-muted">This lesson already has its own Avatar/Cartoon context from step 3. Students open it from the lesson player; set its lesson time when placing this lesson on the Batch schedule.</p>
           </div>}
-          {!interactiveVideo && AI_KINDS.has(exercise.kind) && <div className="mt-3 rounded-lg border border-brand-blue/20 bg-brand-primary-pale/40 p-3">
+          {AI_KINDS.has(exercise.kind) && <div className="mt-3 rounded-lg border border-brand-blue/20 bg-brand-primary-pale/40 p-3">
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-xs font-semibold">{t("builder.aiQuestionCount")}
                 <select value={draftCount} onChange={event => setDraftCount(Number(event.target.value))} className="mt-1 block min-h-11 rounded-lg border border-line bg-card px-2 text-sm">{[1, 2, 3, 4, 5].map(count => <option key={count} value={count}>{count}</option>)}</select>
