@@ -111,7 +111,7 @@ test("Voice calls always carry an explicit session id, and a stale room cannot c
 test("Avatar requests never carry a mode; only Voice sends it, and only the owner can end/confirm", () => {
   const client = read("lib/api/client.ts");
   assert.match(client, /mode === "voice_practice" \? \{ topic_id: topicId, mode \} : \{ topic_id: topicId \}/);
-  assert.ok(!/sessionsApi\.(start|endVoice|confirmVoiceConnected)/.test(read("components/student/player/MariamSession.tsx")) || /sessionsApi\.start\(topicId(, undefined, enrollmentId)?\)/.test(read("components/student/player/MariamSession.tsx")));
+  assert.ok(!/sessionsApi\.(start|endVoice|confirmVoiceConnected)/.test(read("components/student/player/MariamSession.tsx")) || /sessionsApi\.start\(topicId(, undefined, enrollmentId(, checkpointId)?)?\)/.test(read("components/student/player/MariamSession.tsx")), "MariamSession never passes an explicit mode (Avatar is always the implicit topic_discussion default) - checkpointId is additive/optional for a Practice with Mariam checkpoint");
   assert.ok(!/endVoice|confirmVoiceConnected|voice_practice/.test(read("components/student/player/MariamSession.tsx")), "Avatar never calls the Voice lifecycle");
   assert.ok(!/sessionsApi\.start\(topicId\)|"topic_discussion"/.test(read("lib/voice/useVoicePractice.ts")), "Voice never starts an Avatar session");
 });

@@ -34,3 +34,34 @@ test("Video Studio is authoring-only and never records learner activity", () => 
   assert.doesNotMatch(studio, /Complete preview activity & resume/);
   assert.doesNotMatch(studio, /previewCheckpointId/);
 });
+
+test("the marker panel can switch a checkpoint's kind, and hides/shows the right fields", () => {
+  assert.match(studio, /role="tablist" aria-label="Checkpoint activity"/);
+  assert.match(studio, /change\(selected\.id, \{ kind: "exercise"/);
+  assert.match(studio, /change\(selected\.id, \{ kind: "practice_with_mariam"/);
+  assert.match(studio, /isPractice \? <>/);
+  assert.match(studio, /Conversation goal/);
+  assert.match(studio, /Opening line/);
+  assert.match(studio, /Session length \(minutes\)/);
+  assert.match(studio, /Required activity/);
+});
+
+test("Save is disabled, with an inline error, when a Practice with Mariam marker is missing its goal/opening line", () => {
+  assert.match(studio, /function practiceInvalid/);
+  assert.match(studio, /invalidPractice = items\.some\(practiceInvalid\)/);
+  assert.match(studio, /disabled=\{saving \|\| !items\.length \|\| saved \|\| invalidPractice\}/);
+});
+
+test("convert-to-practice calls the dedicated endpoint and refreshes the checkpoint list from its response", () => {
+  assert.match(studio, /Convert to Practice with Mariam…/);
+  assert.match(studio, /topicsApi\.convertCheckpointToPractice\(topicId, convertingId, convertDraft\)/);
+  assert.match(studio, /setItems\(updated\.interactive_video_checkpoints\)/);
+});
+
+test("the AI-suggested-draft review panel renders a distinct Practice with Mariam suggestion", () => {
+  assert.match(builder, /checkpoint_kind === "practice_with_mariam"/);
+  assert.match(builder, /Practice with Mariam<\/span>/);
+  assert.match(builder, /suggestion\.conversation_goal/);
+  assert.match(builder, /suggestion\.opening_line/);
+  assert.match(builder, /suggestion\.session_duration_minutes/);
+});

@@ -74,6 +74,7 @@ import type {
   ChallengeCalendar,
   AvatarTokenResponse,
   SessionPage,
+  CheckpointSessionStatus,
   SessionStartResponse,
   SetTeacherActiveRequest,
   StudentAlerts,
@@ -407,6 +408,14 @@ export const topicsApi = {
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-drafts/${index}/accept`, { method: "POST" }),
   rejectInteractiveVideoSuggestion: (topicId: string, index: number) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-drafts/${index}/reject`, { method: "POST" }),
+  /** Converts an existing (e.g. AI-suggested exercise) checkpoint in place to "practice_with_mariam", given the
+   * learning objective/goal/opening line/duration. Added for Practice with Mariam checkpoints; path/shape per the
+   * backend contract at the time of writing - reconcile here if the real backend lands with a different path. */
+  convertCheckpointToPractice: (topicId: string, checkpointId: string, body: { learning_objective?: string; conversation_goal: string; opening_line: string; session_duration_minutes: number }) =>
+    request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-timeline/${checkpointId}/convert-to-practice`, { method: "POST", json: body }),
+  /** Student only. Whether the requesting student has an ENDED Practice with Mariam session for this checkpoint. */
+  getCheckpointSessionStatus: (topicId: string, checkpointId: string) =>
+    request<CheckpointSessionStatus>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-checkpoints/${checkpointId}/session-status`),
   /** Teacher-reviewed suggestions only; nothing is saved until PATCH /topics/{id}. */
   draftExercises: (topicId: string, body: DraftExercisesRequest) =>
     request<DraftExercisesResponse>(`${BACKEND_PREFIX}/topics/${topicId}/draft-exercises`, { method: "POST", json: body }),
@@ -756,11 +765,12 @@ export const messagesApi = {
 export const sessionsApi = {
   /** Student only. Mints a LiveKit room + token for a Mariam session tied to
    * this topic - 403s if the topic is outside their assigned plan. */
-  start: (topicId: string, mode: PracticeMode = "topic_discussion", enrollmentId?: string) =>
+  start: (topicId: string, mode: PracticeMode = "topic_discussion", enrollmentId?: string, checkpointId?: string) =>
     request<SessionStartResponse>(`${BACKEND_PREFIX}/sessions/start`, {
       method: "POST",
-      // Avatar Practice sends exactly the body it always did.
-      json: { ...(mode === "voice_practice" ? { topic_id: topicId, mode } : { topic_id: topicId }), ...(enrollmentId ? { enrollment_id: enrollmentId } : {}) },
+      // Avatar Practice sends exactly the body it always did; `checkpointId` is additive/optional for a
+      // Practice with Mariam interactive-video checkpoint (see `CheckpointMariamSession`).
+      json: { ...(mode === "voice_practice" ? { topic_id: topicId, mode } : { topic_id: topicId }), ...(enrollmentId ? { enrollment_id: enrollmentId } : {}), ...(checkpointId ? { checkpoint_id: checkpointId } : {}) },
     }),
   /** Student only, own Avatar Practice session. Starts (or, on retry, re-mints a token for) a Cartoon/Voice Practice
    * session on the same topic that continues this conversation - see `LiveSessionService.initiate_handoff`. Never

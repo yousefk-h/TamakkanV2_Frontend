@@ -37,12 +37,25 @@ export type PlanType = "standard" | "pro";
 export type Level = "beginner" | "intermediate" | "advanced";
 export type LessonFlow = "standard" | "interactive_video";
 export type InteractiveVideoCompletionRule = "submitted" | "correct";
+/** "exercise" (default) pauses for a normal lesson activity; "practice_with_mariam" pauses for a short live
+ * LiveKit/Mariam avatar conversation instead - see `CheckpointMariamSession`. */
+export type InteractiveVideoCheckpointKind = "exercise" | "practice_with_mariam";
 
 export interface InteractiveVideoCheckpoint {
   id: string;
   timestamp_seconds: number;
-  exercise_index: number;
+  /** Defaults to "exercise" server-side; treat a missing value the same way client-side
+   * (`checkpoint.kind ?? "exercise"`) so older/unmigrated checkpoints keep working untouched. */
+  kind?: InteractiveVideoCheckpointKind;
+  /** Required when `kind` is "exercise" (or omitted); unused for "practice_with_mariam". */
+  exercise_index?: number;
   completion_rule: InteractiveVideoCompletionRule;
+  // --- "practice_with_mariam" only ---
+  learning_objective?: string;
+  conversation_goal?: string;
+  opening_line?: string;
+  /** Minutes, 1-10, default 2. */
+  session_duration_minutes?: number;
 }
 
 export type InteractiveVideoTimelineSuggestion = Omit<InteractiveVideoCheckpoint, "exercise_index"> & {
@@ -51,9 +64,11 @@ export type InteractiveVideoTimelineSuggestion = Omit<InteractiveVideoCheckpoint
   learning_goal: string;
   source_evidence: string;
   /** A new editable activity proposed by AI. Older suggestions instead refer
-   * to an existing exercise_index. */
+   * to an existing exercise_index. Irrelevant when `checkpoint_kind` is "practice_with_mariam". */
   exercise_index: number | null;
   exercise: LessonExercise | null;
+  /** Defaults to "exercise" server-side, same convention as `InteractiveVideoCheckpoint.kind`. */
+  checkpoint_kind?: InteractiveVideoCheckpointKind;
 };
 
 /** A center-defined label mapped to one stable proficiency band. The mapping
@@ -1187,6 +1202,14 @@ export interface HomeworkCreateRequest {
 }
 
 // --- Sessions (app/schema/live_session.py) - real "Discuss with Mariam" ----
+
+/** `GET /topics/{topic_id}/interactive-video-checkpoints/{checkpoint_id}/session-status` - a Practice with Mariam
+ * checkpoint's lightweight completion signal, scoped to the requesting student only. */
+export interface CheckpointSessionStatus {
+  completed: boolean;
+  latest_session_id?: string | null;
+  latest_session_state?: string | null;
+}
 
 export interface SessionStartResponse {
   server_url: string;

@@ -75,15 +75,18 @@ const AVATAR_CLIP_STYLE = { clipPath: "inset(0 round 1rem)", WebkitClipPath: "in
  * cross-browser divergence, and has worked this way for over a decade.
  * `min-w-0` on the box itself guards against the same flex-item
  * default-sizing issue independently of the aspect-ratio question. */
-function AvatarBox({ children }: { children: ReactNode }) {
+function AvatarBox({ children, compact }: { children: ReactNode; compact?: boolean }) {
   return (
     <div className="relative w-full min-w-0 overflow-hidden rounded-2xl" style={AVATAR_CLIP_STYLE}>
       {/* Reserves the box's height - 16:9 of its own width from `md` up (with a
       280px floor), a fluid `dvh`-based height on phones so the avatar is
       large without ever exceeding the screen (`.avatar-stage-spacer` in
       globals.css) - `aria-hidden` and otherwise empty, it contributes no
-      content, only space. */}
-      <div aria-hidden="true" className="avatar-stage-spacer" />
+      content, only space. Compact (a Practice with Mariam checkpoint mounted
+      beside the fullscreen video, not full-bleed) uses a smaller fixed
+      height instead - that panel is a narrow fixed-width column, not the
+      page, so the responsive spacer sizing is the wrong fit there. */}
+      {compact ? <div aria-hidden="true" style={{ height: 220 }} /> : <div aria-hidden="true" className="avatar-stage-spacer" />}
       <div className="absolute inset-0" style={AVATAR_BACKDROP_STYLE}>
         {children}
       </div>
@@ -104,6 +107,10 @@ export function MariamSession({
   onActiveChange,
   onSessionReady,
   onWeakNetworkFallback,
+  checkpointId,
+  fixedDurationMinutes,
+  compact,
+  onEnded,
 }: {
   topicId: string;
   enrollmentId?: string;
@@ -119,6 +126,23 @@ export function MariamSession({
   // `POST /sessions/{id}/handoff` call path a manual switch uses. Returns whether it succeeded so the offer dialog
   // can show a recoverable error instead of silently doing nothing.
   onWeakNetworkFallback?: (sessionId: string) => Promise<boolean | undefined>;
+  // Interactive Video "Practice with Mariam" checkpoint support (additive - every prop below is undefined/false for
+  // the existing "Discuss with Mariam" tab, which keeps that call site byte-for-byte behaviorally unchanged).
+  /** Threaded through to `POST /sessions/start`'s optional `checkpoint_id` so the live session is tied to this
+   * checkpoint (server-side duration cap, completion status, etc). Presence of this prop is what turns on every
+   * other checkpoint-only behavior below - never gated on `compact` alone. */
+  checkpointId?: string;
+  /** The checkpoint's authored session length, shown only as an idle-state hint before the student starts - the
+   * actual countdown always runs off `max_duration_minutes` in the `start()` response, which the backend already
+   * caps to this value server-side, so there is nothing else for this prop to drive. */
+  fixedDurationMinutes?: number;
+  /** Smaller layout suited to the fixed-width side panel of the Full Lesson Screen, and suppresses the weak-network
+   * "switch to Cartoon?" offer entirely - a checkpoint practice is short and fixed-mode, so there is no other mode
+   * to switch to here. */
+  compact?: boolean;
+  /** Fires once, whenever this checkpoint's session stops being live for any reason. Only meaningful (and only
+   * ever called) when `checkpointId` is set. */
+  onEnded?: (reason: "completed" | "error" | "user_ended") => void;
 }) {
   const { t } = useI18n();
   const { state: authState } = useAuth();
@@ -147,6 +171,13 @@ export function MariamSession({
   const [showWeakNetworkOffer, setShowWeakNetworkOffer] = useState(false);
   const [weakNetworkSwitchPending, setWeakNetworkSwitchPending] = useState(false);
   const [weakNetworkSwitchError, setWeakNetworkSwitchError] = useState<string | null>(null);
+  // A checkpoint practice is short/fixed-mode: there is no other mode to switch to, so the offer never applies.
+  const weakNetworkOfferEnabled = !compact && !checkpointId;
+
+  // Checkpoint practice only: distinguishes "the student pressed End" from "the connection dropped on its own" so
+  // `onEnded` can report an accurate reason - `avatar.disconnect()` (called by both the End button below and the
+  // hook's own unmount cleanup) always routes through the same `onDisconnected` callback either way.
+  const userEndedRef = useRef(false);
 
   // Warm the SDK while the page is idle, so the click handler below can use the SDK's own audio-unlock helper. Kept in
   // this component's state (not module state), so nothing about a session is ever shared.
@@ -172,11 +203,13 @@ export function MariamSession({
       setPhase("error");
       // Stage 4: count this ONLY if it is a qualifying failure (see the tracker's own doc) - every other fatal error
       // (credentials, session-ended, mic, resource load, ...) is neither counted nor resets the count.
-      if (weakNetworkTrackerRef.current.recordError(err)) setShowWeakNetworkOffer(true);
+      if (weakNetworkOfferEnabled && weakNetworkTrackerRef.current.recordError(err)) setShowWeakNetworkOffer(true);
+      if (checkpointId) onEnded?.("error");
     },
     onDisconnected: () => {
       setPhase(prev => (prev === "error" ? prev : "ended"));
       setConnection(null);
+      if (checkpointId) onEnded?.(userEndedRef.current ? "user_ended" : "completed");
     },
   });
 
@@ -211,8 +244,9 @@ export function MariamSession({
     const audioContext = createAvatarAudioContext(audioSdk);
     setPhase("connecting");
     setError(null);
+    userEndedRef.current = false;
     try {
-      const { server_url, participant_token, room_name, max_duration_minutes, session_id } = await sessionsApi.start(topicId, undefined, enrollmentId);
+      const { server_url, participant_token, room_name, max_duration_minutes, session_id } = await sessionsApi.start(topicId, undefined, enrollmentId, checkpointId);
       // The SpatialReal session token is minted by our API for THIS session (never the API key), together with the
       // public App ID / Avatar ID - the same app and avatar the hosted agent drives.
       const avatarCredential = await sessionsApi.avatarToken(session_id);
@@ -233,9 +267,10 @@ export function MariamSession({
       setError(err instanceof ApiError ? err.message : t("mariamSession.startError"));
       setPhase("error");
     }
-  }, [topicId, enrollmentId, t, audioSdk]);
+  }, [topicId, enrollmentId, checkpointId, t, audioSdk]);
 
   const end = useCallback(async () => {
+    userEndedRef.current = true;
     await avatar.disconnect();
   }, [avatar]);
 
@@ -333,7 +368,7 @@ export function MariamSession({
                     : t(STATUS_KEY[status]);
     return (
       <div className="flex flex-col gap-3 md:gap-4">
-        <AvatarBox>
+        <AvatarBox compact={compact}>
           <div ref={bindContainer} className="absolute inset-0 size-full" />
           {isLoading && (
             <div className="absolute inset-0 z-10 grid place-items-center bg-brand-navy/85 px-4 text-center text-sm text-white/80">{t(STATUS_KEY[status])}</div>
@@ -411,7 +446,7 @@ export function MariamSession({
   return (
     <>
     <div className="flex flex-col gap-3 md:gap-4">
-      <AvatarBox>
+      <AvatarBox compact={compact}>
         {/* Deliberately a CSS background-image, not `next/image`'s `fill` +
         `object-fit` (which is what this was before, and stayed visibly
         `cover`-cropped on iPhone no matter what `object-fit`/`objectPosition`
@@ -461,6 +496,7 @@ export function MariamSession({
           ) : (
             <p className="w-full text-sm text-white/90">
               {watched ? t("mariamSession.readyToStart") : t("mariamSession.watchFirst")}
+              {checkpointId && fixedDurationMinutes ? ` (~${fixedDurationMinutes} min)` : ""}
             </p>
           )}
           {error && <p className="w-full rounded-lg bg-brand-coral/30 px-3 py-1.5 text-sm font-semibold text-white">{error}</p>}
