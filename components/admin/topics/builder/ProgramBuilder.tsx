@@ -913,8 +913,8 @@ export function ProgramBuilder({
     try {
       const result = await topicsApi.acceptAllInteractiveVideoDrafts(topicId);
       await refetchTopic();
-      setAcceptAllSummary(result.failed.length
-        ? `Accepted ${result.accepted_count}, ${result.failed.length} could not be accepted: ${result.failed.map(failure => `${formatVideoTime(failure.timestamp_seconds)} (${failure.reason})`).join("; ")}`
+      setAcceptAllSummary(result.failures.length
+        ? `Accepted ${result.accepted_count}, ${result.failures.length} could not be accepted: ${result.failures.map(failure => `${formatVideoTime(failure.timestamp_seconds)} (${failure.reason})`).join("; ")}`
         : `Accepted ${result.accepted_count} suggestions.`);
       if (result.accepted_count > 0) setStep(6);
     } catch (err) {
