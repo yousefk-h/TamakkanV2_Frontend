@@ -47,6 +47,9 @@ export interface InteractiveVideoCheckpoint {
 
 export type InteractiveVideoTimelineSuggestion = Omit<InteractiveVideoCheckpoint, "exercise_index"> & {
   rationale: string;
+  learning_action: "apply" | "infer" | "predict" | "language_notice" | "error_correction" | "listening_detail" | "reflect";
+  learning_goal: string;
+  source_evidence: string;
   /** A new editable activity proposed by AI. Older suggestions instead refer
    * to an existing exercise_index. */
   exercise_index: number | null;
