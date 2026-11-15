@@ -16,6 +16,7 @@ import { Step4LessonFlow } from "./Step4LessonFlow";
 import { Step4Review } from "./Step4Review";
 import { Step4ExercisesSchedule } from "./Step4ExercisesSchedule";
 import { InteractiveVideoTimelineEditor } from "./InteractiveVideoTimelineEditor";
+import { assignClientKeys, remapCheckpointsForExercises, stripClientKey, type TrackedExercise } from "@/lib/lessonBuilder/checkpointRemap";
 import { LessonStudentPreview } from "./LessonStudentPreview";
 import { TopicProgramAssignments } from "./TopicProgramAssignments";
 
@@ -116,8 +117,14 @@ export function ProgramBuilder({
   const [arabicInterventionLevel, setArabicInterventionLevel] = useState<ArabicInterventionLevel>("low");
   const [openingLine, setOpeningLine] = useState("");
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
-  const [exercises, setExercises] = useState<LessonExercise[]>([]);
+  const [exercises, setExercises] = useState<TrackedExercise[]>([]);
   const [exercisesDirty, setExercisesDirty] = useState(false);
+  // Fix 3: whenever the exercises array is restructured locally (delete,
+  // reorder, insert - via onExercisesChange or an AI-suggestion accept),
+  // checkpoints that still pointed at the old exercise_index are remapped or,
+  // if their exercise was removed, dropped with a visible, non-silent
+  // warning here.
+  const [checkpointRemapNotice, setCheckpointRemapNotice] = useState<string | null>(null);
   const [generatingExerciseIndex, setGeneratingExerciseIndex] = useState<number | null>(null);
   const [exerciseSuggestions, setExerciseSuggestions] = useState<{ index: number; exercises: LessonExercise[] } | null>(null);
   const [transcriptState, setTranscriptState] = useState<TranscriptState | null>(null);
@@ -156,6 +163,8 @@ export function ProgramBuilder({
   const [suggestingTimeline, setSuggestingTimeline] = useState(false);
   const [timelineSuggestionError, setTimelineSuggestionError] = useState<string | null>(null);
   const [timelineSuggestionAction, setTimelineSuggestionAction] = useState<number | null>(null);
+  const [acceptingAllSuggestions, setAcceptingAllSuggestions] = useState(false);
+  const [acceptAllSummary, setAcceptAllSummary] = useState<string | null>(null);
   // The first four decisions are shared. From the flow choice onward these
   // are deliberately different journeys: Standard owns Avatar + exercises.
   // Interactive asks AI (or the teacher) for a video plan first, then opens
@@ -209,7 +218,11 @@ export function ProgramBuilder({
     setArabicInterventionLevel(loadedTopic.arabic_intervention_level ?? "low");
     setOpeningLine(loadedTopic.opening_line);
     setVocabulary(loadedTopic.vocabulary);
-    if (!exercisesDirty) setExercises(loadedTopic.lesson_exercises ?? []);
+    // Freshly loaded from the server together with `interactive_video_checkpoints`
+    // below - both are already mutually consistent, so this only needs to stamp
+    // client-tracking keys, never diff/remap against the checkpoints it is about
+    // to replace (see `applyExercisesChange` for the real remap logic).
+    if (!exercisesDirty) setExercises(assignClientKeys(loadedTopic.lesson_exercises ?? []));
     setTranscriptState(loadedTopic.transcript_state);
     setTranscriptSource(loadedTopic.transcript_source);
     setTranscriptSegments(loadedTopic.raw_transcript);
@@ -792,7 +805,14 @@ export function ProgramBuilder({
     setSaving(true);
     setSaveError(null);
     try {
-      await topicsApi.update(topicId, { lesson_exercises: exercises.map(exercise => ({ ...exercise, prompt: exercise.prompt.trim(), options: exercise.options.map(option => option.trim()) })) });
+      await topicsApi.update(topicId, { lesson_exercises: exercises.map(exercise => stripClientKey({ ...exercise, prompt: exercise.prompt.trim(), options: exercise.options.map(option => option.trim()) })) });
+      // Mirrors the success path in handleInteractiveSuggestionAction below -
+      // a successful persist here is the ONLY other place exercises are
+      // genuinely saved, so this flag must clear here too. Previously this
+      // was missing: once set true by any exercise edit, it stayed stuck
+      // true for the rest of the session, which permanently disabled the AI
+      // suggestion Accept/Reject buttons (see that handler's own guard).
+      setExercisesDirty(false);
       onSaved();
       setStep(nextStep);
     } catch (err) {
@@ -867,7 +887,9 @@ export function ProgramBuilder({
       const updated = action === "accept"
         ? await topicsApi.acceptInteractiveVideoSuggestion(topicId, index)
         : await topicsApi.rejectInteractiveVideoSuggestion(topicId, index);
-      setExercises(updated.lesson_exercises);
+      // Freshly persisted together from the server - both already consistent,
+      // same reasoning as the seeding effect above.
+      setExercises(assignClientKeys(updated.lesson_exercises));
       setExercisesDirty(false);
       setInteractiveCheckpoints(updated.interactive_video_checkpoints);
       await refetchTopic();
@@ -879,16 +901,64 @@ export function ProgramBuilder({
     }
   };
 
+  // Fix 6: bulk-accept every pending AI video-plan suggestion in one call.
+  // Same `exercisesDirty` guard as the per-suggestion accept/reject above -
+  // never silently overwrite an in-progress unsaved Studio edit. A partial
+  // failure is always shown, never hidden.
+  const handleAcceptAllSuggestions = async () => {
+    if (!topicId || exercisesDirty) return;
+    setAcceptingAllSuggestions(true);
+    setTimelineSuggestionError(null);
+    setAcceptAllSummary(null);
+    try {
+      const result = await topicsApi.acceptAllInteractiveVideoDrafts(topicId);
+      await refetchTopic();
+      setAcceptAllSummary(result.failed.length
+        ? `Accepted ${result.accepted_count}, ${result.failed.length} could not be accepted: ${result.failed.map(failure => `${formatVideoTime(failure.timestamp_seconds)} (${failure.reason})`).join("; ")}`
+        : `Accepted ${result.accepted_count} suggestions.`);
+      if (result.accepted_count > 0) setStep(6);
+    } catch (err) {
+      setTimelineSuggestionError(err instanceof ApiError ? err.message : "These suggestions could not be accepted. Please try again.");
+    } finally {
+      setAcceptingAllSuggestions(false);
+    }
+  };
+
+  // Fix 3: the single point every local (unsaved) exercises-array restructure
+  // goes through - whichever UI triggered it (the "exercises" step, the
+  // embedded Studio copy of Step4ExercisesSchedule, or this AI-suggestion
+  // accept). Diffs the old array against `next` by each exercise's stable
+  // `_clientKey` (assigned on first sight, carried forward through every
+  // existing in-place edit's object-spread), then remaps or drops each
+  // checkpoint's `exercise_index` accordingly. A dropped checkpoint (its
+  // exercise was removed) is never silent - it's surfaced via
+  // `checkpointRemapNotice`. Kept entirely client-side: the corrected
+  // `exercise_index` values are saved normally through the existing full-array
+  // PUT the next time the teacher saves.
+  const applyExercisesChange = (next: LessonExercise[]) => {
+    const keyedNext = assignClientKeys(next);
+    const { checkpoints: remapped, changed, droppedTimestamps } = remapCheckpointsForExercises(exercises, keyedNext, interactiveCheckpoints);
+
+    setExercises(keyedNext);
+    setExercisesDirty(true);
+    setExerciseSuggestions(null);
+    if (changed) {
+      setInteractiveCheckpoints(remapped);
+      setCheckpointRemapNotice(droppedTimestamps.length
+        ? `Removed ${droppedTimestamps.length} checkpoint${droppedTimestamps.length > 1 ? "s" : ""} whose activity was deleted (at ${droppedTimestamps.map(formatVideoTime).join(", ")}). Re-add a checkpoint there if it's still needed, then save the timeline.`
+        : "A checkpoint's activity moved, so its pause point was updated to match. Save the timeline to keep this.");
+    }
+  };
+
   const handleAcceptSuggestions = () => {
     if (!exerciseSuggestions) return;
     const { index, exercises: drafts } = exerciseSuggestions;
     const current = exercises[index];
     const replacePlaceholder = current && !current.prompt.trim();
-    setExercisesDirty(true);
-    setExercises(previous => replacePlaceholder
-      ? [...previous.slice(0, index), ...drafts, ...previous.slice(index + 1)]
-      : [...previous.slice(0, index + 1), ...drafts, ...previous.slice(index + 1)]);
-    setExerciseSuggestions(null);
+    const next = replacePlaceholder
+      ? [...exercises.slice(0, index), ...drafts, ...exercises.slice(index + 1)]
+      : [...exercises.slice(0, index + 1), ...drafts, ...exercises.slice(index + 1)];
+    applyExercisesChange(next);
   };
 
   return (
@@ -1040,7 +1110,7 @@ export function ProgramBuilder({
               />
             )}
             {currentStep === "exercises" && (
-              <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
+              <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={applyExercisesChange} hasVideo={!!youtubeUrl.trim()} hasVocabulary={vocabulary.some(item => !!item.term.trim())} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
                 lessonDraftJob={lessonDraftJob} draftExercises={loadedTopic?.draft_exercises ?? []} onGenerateLessonDraft={handleGenerateLessonDraft} lessonDraftStarting={lessonDraftStarting} lessonDraftError={lessonDraftError} onAcceptDraftExercise={index => handleDraftExerciseAction(index, "accept")} onRejectDraftExercise={index => handleDraftExerciseAction(index, "reject")} onRegenerateDraftExercise={index => handleDraftExerciseAction(index, "regenerate")} draftExerciseActionIndex={draftExerciseActionIndex} exercisesDirty={exercisesDirty} />
             )}
             {currentStep === "studio" && topicId && (
@@ -1050,7 +1120,8 @@ export function ProgramBuilder({
                   <h3 className="mt-1 text-xl font-extrabold text-ink">Review questions, then place their pauses</h3>
                   <p className="mt-1 max-w-3xl text-sm text-muted">Start with the AI questions you accepted. Edit only what you want, then confirm where each one pauses the video.</p>
                 </div>
-                <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!loadedTopic?.uploaded_video_url} hasVocabulary={false} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
+                {checkpointRemapNotice && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><div className="flex items-start justify-between gap-3"><p className="min-w-0">{checkpointRemapNotice}</p><button type="button" onClick={() => setCheckpointRemapNotice(null)} className="shrink-0 text-xs font-bold text-amber-900 underline">Dismiss</button></div></div>}
+                <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={applyExercisesChange} hasVideo={!!loadedTopic?.uploaded_video_url} hasVocabulary={false} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
                   lessonDraftJob={null} draftExercises={[]} onGenerateLessonDraft={() => undefined} lessonDraftStarting={false} lessonDraftError={null} onAcceptDraftExercise={() => undefined} onRejectDraftExercise={() => undefined} onRegenerateDraftExercise={() => undefined} draftExerciseActionIndex={null} exercisesDirty={exercisesDirty} interactiveVideo compact />
                 <InteractiveVideoTimelineEditor
                   topicId={topicId}
@@ -1079,7 +1150,8 @@ export function ProgramBuilder({
                   {timelineSuggestionError && <p role="alert" className="mt-3 rounded-lg bg-brand-coral-pale p-3 text-sm text-brand-coral">{timelineSuggestionError}</p>}
                 </header>
                 {(loadedTopic?.interactive_video_drafts ?? []).length > 0 && <div className="space-y-3">
-                  <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="text-lg font-extrabold text-ink">Review AI suggestions</h4><p className="mt-1 text-sm text-muted">Accept one to add it to Video Studio and edit the question before publishing.</p></div><button type="button" disabled={suggestingTimeline} onClick={() => void handleSuggestInteractiveTimeline(true)} className="min-h-10 rounded-lg border border-line bg-card px-3 text-sm font-bold text-ink">Get new suggestions</button></div>
+                  <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="text-lg font-extrabold text-ink">Review AI suggestions</h4><p className="mt-1 text-sm text-muted">Accept one to add it to Video Studio and edit the question before publishing.</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={exercisesDirty || acceptingAllSuggestions || timelineSuggestionAction !== null} onClick={() => void handleAcceptAllSuggestions()} className="min-h-10 rounded-lg bg-brand-blue px-3 text-sm font-bold text-white disabled:opacity-40">{acceptingAllSuggestions ? "Accepting all…" : "Accept all"}</button><button type="button" disabled={suggestingTimeline} onClick={() => void handleSuggestInteractiveTimeline(true)} className="min-h-10 rounded-lg border border-line bg-card px-3 text-sm font-bold text-ink">Get new suggestions</button></div></div>
+                  {acceptAllSummary && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{acceptAllSummary}</p>}
                   {(loadedTopic?.interactive_video_drafts ?? []).map((suggestion: InteractiveVideoTimelineSuggestion, index: number) => { const learningAction = suggestion.learning_action ?? "apply"; const isPracticeSuggestion = suggestion.checkpoint_kind === "practice_with_mariam"; return <article key={suggestion.id} className="rounded-2xl border border-line bg-card p-5 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 max-w-3xl"><div className="flex flex-wrap gap-2"><span className="rounded-full bg-brand-primary-pale px-3 py-1 text-xs font-extrabold text-brand-blue">Pause at {formatVideoTime(suggestion.timestamp_seconds)}</span>{isPracticeSuggestion ? <span className="rounded-full bg-brand-cyan/15 px-3 py-1 text-xs font-bold text-brand-navy">🗣️ Practice with Mariam</span> : <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold capitalize text-emerald-800">{learningAction.replaceAll("_", " ")}</span>}</div>{isPracticeSuggestion ? <>
                     <h5 className="mt-3 text-base font-extrabold text-ink">{suggestion.opening_line || "Live conversation checkpoint"}</h5>
                     {suggestion.conversation_goal && <p className="mt-2 text-sm text-ink"><b>Conversation goal:</b> {suggestion.conversation_goal}</p>}

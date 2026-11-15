@@ -92,6 +92,7 @@ import type {
   TopicUpdateRequest,
   InteractiveVideoCheckpoint,
   InteractiveVideoTimelineSuggestion,
+  AcceptAllInteractiveVideoDraftsResponse,
   UpdateLiveClassRequest,
   UpdateMeRequest,
   UpdateStudentEmailRequest,
@@ -408,6 +409,14 @@ export const topicsApi = {
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-drafts/${index}/accept`, { method: "POST" }),
   rejectInteractiveVideoSuggestion: (topicId: string, index: number) =>
     request<TopicPublic>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-drafts/${index}/reject`, { method: "POST" }),
+  /** Fix 6: bulk-accepts every pending AI video-plan suggestion in one call.
+   * Response shape is a reasonable guess pending the real backend contract
+   * (parallel backend agent) - reconcile `AcceptAllInteractiveVideoDraftsResponse`
+   * in types.ts once it lands. The caller still refetches the topic afterward
+   * for the authoritative lesson_exercises/checkpoints/drafts state, so this
+   * response is used only for the accepted/failed summary shown to the teacher. */
+  acceptAllInteractiveVideoDrafts: (topicId: string) =>
+    request<AcceptAllInteractiveVideoDraftsResponse>(`${BACKEND_PREFIX}/topics/${topicId}/interactive-video-drafts/accept-all`, { method: "POST" }),
   /** Converts an existing (e.g. AI-suggested exercise) checkpoint in place to "practice_with_mariam", given the
    * learning objective/goal/opening line/duration. Added for Practice with Mariam checkpoints; path/shape per the
    * backend contract at the time of writing - reconcile here if the real backend lands with a different path. */

@@ -71,6 +71,15 @@ export type InteractiveVideoTimelineSuggestion = Omit<InteractiveVideoCheckpoint
   checkpoint_kind?: InteractiveVideoCheckpointKind;
 };
 
+/** Fix 6: response of `POST /topics/{id}/interactive-video-drafts/accept-all`
+ * (parallel backend agent). This shape is a reasonable guess made from the
+ * brief, not yet confirmed against the real backend - reconcile field names
+ * here (and in `topicsApi.acceptAllInteractiveVideoDrafts`) once it lands. */
+export interface AcceptAllInteractiveVideoDraftsResponse {
+  accepted_count: number;
+  failed: { index_or_id: number | string; timestamp_seconds: number; reason: string }[];
+}
+
 /** A center-defined label mapped to one stable proficiency band. The mapping
  * keeps existing calendars and agents compatible while allowing the center
  * to add levels with their own Avatar guidance. */
