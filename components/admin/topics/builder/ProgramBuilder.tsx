@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
 import { ApiError, levelProfilesApi, topicsApi } from "@/lib/api/client";
-import type { ArabicInterventionLevel, InteractiveVideoCheckpoint, LearningObjective, LessonExercise, LessonFlow, Level, LevelProfilePublic, ObjectiveSuggestion, ReviewTranscriptEnglishResult, TranscriptSegment, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
+import type { ArabicInterventionLevel, InteractiveVideoCheckpoint, InteractiveVideoTimelineSuggestion, LearningObjective, LessonExercise, LessonFlow, Level, LevelProfilePublic, ObjectiveSuggestion, ReviewTranscriptEnglishResult, TranscriptSegment, TranscriptSource, TranscriptState, VocabularyItem, VoicePromptMode } from "@/lib/api/types";
 import { useTopic } from "@/lib/hooks/useTopics";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
@@ -28,6 +28,11 @@ const TRANSCRIPT_POLL_MAX_ATTEMPTS = 20;
 // when done" mechanism for either yet.
 const DRAFT_POLL_INTERVAL_MS = 4000;
 const DRAFT_POLL_MAX_ATTEMPTS = 20;
+
+function formatVideoTime(value: number) {
+  const seconds = Math.max(0, Math.floor(value || 0));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
 
 function formatSourceTranscript(segments: { text: string }[], labels: string[]): string {
   if (new Set(labels).size <= 1) return segments.map(segment => segment.text.trim()).join(" ");
@@ -148,6 +153,9 @@ export function ProgramBuilder({
   const [persistedLessonFlow, setPersistedLessonFlow] = useState<LessonFlow>("standard");
   const [interactiveCheckpoints, setInteractiveCheckpoints] = useState<InteractiveVideoCheckpoint[]>([]);
   const [videoStudioDirty, setVideoStudioDirty] = useState(false);
+  const [suggestingTimeline, setSuggestingTimeline] = useState(false);
+  const [timelineSuggestionError, setTimelineSuggestionError] = useState<string | null>(null);
+  const [timelineSuggestionAction, setTimelineSuggestionAction] = useState<number | null>(null);
   // The first four decisions are shared. From the flow choice onward these
   // are deliberately different journeys: Standard owns Avatar + exercises;
   // Interactive owns all answerable activities and checkpoint authoring in
@@ -159,7 +167,7 @@ export function ProgramBuilder({
       { id: "objectives", name: t("builder.stepName3"), blurb: t("builder.stepBlurb3") },
       { id: "flow", name: t("builder.stepName4"), blurb: t("builder.stepBlurb4") },
       { id: "studio", name: "Video Studio", blurb: "Author every Interactive Video activity, then place its checkpoint on the uploaded video." },
-      { id: "timeline", name: "AI Timeline Generation", blurb: "Not available in this release. Author checkpoints in Video Studio." },
+      { id: "timeline", name: "AI video plan", blurb: "AI suggests pause moments and editable question drafts from the approved transcript." },
       { id: "review", name: "Teacher review & edit", blurb: "Review the uploaded video, activities and saved checkpoints before publishing." },
       { id: "publish", name: "Publish", blurb: t("builder.stepBlurb8") },
     ]
@@ -836,6 +844,40 @@ export function ProgramBuilder({
     }
   };
 
+  const handleSuggestInteractiveTimeline = async (refresh = false) => {
+    if (!topicId) return;
+    setSuggestingTimeline(true);
+    setTimelineSuggestionError(null);
+    try {
+      await topicsApi.suggestInteractiveVideoTimeline(topicId, refresh);
+      await refetchTopic();
+    } catch (err) {
+      setTimelineSuggestionError(err instanceof ApiError ? err.message : "AI could not suggest video questions. You can still add them manually.");
+    } finally {
+      setSuggestingTimeline(false);
+    }
+  };
+
+  const handleInteractiveSuggestionAction = async (index: number, action: "accept" | "reject") => {
+    if (!topicId || exercisesDirty) return;
+    setTimelineSuggestionAction(index);
+    setTimelineSuggestionError(null);
+    try {
+      const updated = action === "accept"
+        ? await topicsApi.acceptInteractiveVideoSuggestion(topicId, index)
+        : await topicsApi.rejectInteractiveVideoSuggestion(topicId, index);
+      setExercises(updated.lesson_exercises);
+      setExercisesDirty(false);
+      setInteractiveCheckpoints(updated.interactive_video_checkpoints);
+      await refetchTopic();
+      if (action === "accept") setStep(5);
+    } catch (err) {
+      setTimelineSuggestionError(err instanceof ApiError ? err.message : "This suggestion could not be updated. Please try again.");
+    } finally {
+      setTimelineSuggestionAction(null);
+    }
+  };
+
   const handleAcceptSuggestions = () => {
     if (!exerciseSuggestions) return;
     const { index, exercises: drafts } = exerciseSuggestions;
@@ -1011,7 +1053,8 @@ export function ProgramBuilder({
                 <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale p-5">
                   <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Interactive Video Studio</p>
                   <h3 className="mt-1 text-xl font-extrabold text-ink">Author activities and checkpoints in one place</h3>
-                  <p className="mt-1 max-w-3xl text-sm text-muted">Interactive Video does not use the Avatar prompt or the Standard exercises path. Add answerable activities below, then attach each one to a saved point in your uploaded video.</p>
+                  <p className="mt-1 max-w-3xl text-sm text-muted">Add an activity yourself, or let AI suggest question moments from the approved, timestamped video transcript. Every suggestion stays editable and private until you accept it.</p>
+                  <button type="button" onClick={() => setStep(6)} className="mt-4 min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">Ask AI to suggest questions →</button>
                 </div>
                 <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!loadedTopic?.uploaded_video_url} hasVocabulary={false} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
                   lessonDraftJob={null} draftExercises={[]} onGenerateLessonDraft={() => undefined} lessonDraftStarting={false} lessonDraftError={null} onAcceptDraftExercise={() => undefined} onRejectDraftExercise={() => undefined} onRegenerateDraftExercise={() => undefined} draftExerciseActionIndex={null} exercisesDirty={exercisesDirty} interactiveVideo />
@@ -1029,11 +1072,23 @@ export function ProgramBuilder({
               </section>
             )}
             {currentStep === "timeline" && (
-              <section className="mx-auto max-w-[720px] rounded-2xl border border-amber-300 bg-amber-50 p-6 text-amber-950">
-                <p className="text-xs font-extrabold uppercase tracking-[0.14em]">Interactive Video</p>
-                <h3 className="mt-1 text-xl font-extrabold">AI Timeline Generation is not available yet</h3>
-                <p className="mt-2 text-sm leading-relaxed">No timeline suggestions are generated on this screen. Use Video Studio to author, review and save teacher-owned checkpoints manually; this avoids presenting an unfinished AI action as functional.</p>
-                <button type="button" onClick={() => setStep(5)} className="mt-4 min-h-11 rounded-lg border border-amber-700 px-4 text-sm font-bold">Back to Video Studio</button>
+              <section className="mx-auto max-w-[920px] space-y-5">
+                <header className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale p-5">
+                  <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">AI video plan</p>
+                  <h3 className="mt-1 text-2xl font-extrabold text-ink">Find the best moments to pause and ask</h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted">AI reads the approved transcript with its real video timestamps, then suggests a question type and a draft activity for each useful learning moment. Nothing is added for students until you accept it; after acceptance, edit it freely in Video Studio.</p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button type="button" disabled={suggestingTimeline || transcriptState !== "approved_for_ai"} onClick={() => void handleSuggestInteractiveTimeline()} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{suggestingTimeline ? "Analyzing video…" : "Suggest questions from this video"}</button>
+                    <button type="button" disabled={suggestingTimeline} onClick={() => setStep(5)} className="min-h-11 rounded-lg border border-line bg-card px-4 text-sm font-bold text-ink">Add questions manually</button>
+                  </div>
+                  {transcriptState !== "approved_for_ai" && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">Approve the timestamped transcript in Source & transcript first. This keeps every AI suggestion tied to real spoken moments in the uploaded video.</p>}
+                  {timelineSuggestionError && <p role="alert" className="mt-3 rounded-lg bg-brand-coral-pale p-3 text-sm text-brand-coral">{timelineSuggestionError}</p>}
+                </header>
+                {(loadedTopic?.interactive_video_drafts ?? []).length > 0 && <div className="space-y-3">
+                  <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="text-lg font-extrabold text-ink">Review AI suggestions</h4><p className="mt-1 text-sm text-muted">Accept one to add it to Video Studio and edit the question before publishing.</p></div><button type="button" disabled={suggestingTimeline} onClick={() => void handleSuggestInteractiveTimeline(true)} className="min-h-10 rounded-lg border border-line bg-card px-3 text-sm font-bold text-ink">Get new suggestions</button></div>
+                  {(loadedTopic?.interactive_video_drafts ?? []).map((suggestion: InteractiveVideoTimelineSuggestion, index: number) => <article key={suggestion.id} className="rounded-2xl border border-line bg-card p-5 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><span className="rounded-full bg-brand-primary-pale px-3 py-1 text-xs font-extrabold text-brand-blue">Pause at {formatVideoTime(suggestion.timestamp_seconds)}</span><span className="ms-2 rounded-full bg-bg px-3 py-1 text-xs font-bold capitalize text-ink">{(suggestion.exercise?.kind ?? "existing activity").replaceAll("_", " ")}</span><h5 className="mt-3 text-base font-extrabold text-ink">{suggestion.exercise?.prompt ?? `Use activity #${(suggestion.exercise_index ?? 0) + 1}`}</h5><p className="mt-2 max-w-2xl text-sm text-muted">Why here: {suggestion.rationale}</p></div><div className="flex gap-2"><button type="button" disabled={exercisesDirty || timelineSuggestionAction !== null} onClick={() => void handleInteractiveSuggestionAction(index, "accept")} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{timelineSuggestionAction === index ? "Adding…" : "Accept & edit"}</button><button type="button" disabled={exercisesDirty || timelineSuggestionAction !== null} onClick={() => void handleInteractiveSuggestionAction(index, "reject")} className="min-h-11 rounded-lg border border-line px-4 text-sm font-bold text-brand-coral disabled:opacity-40">Reject</button></div></div>{exercisesDirty && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-950">Save your current Video Studio activity changes first, then accept or reject this suggestion.</p>}</article>)}
+                </div>}
+                {!(loadedTopic?.interactive_video_drafts ?? []).length && !suggestingTimeline && <div className="rounded-2xl border border-dashed border-line bg-card p-8 text-center"><h4 className="font-extrabold text-ink">No suggestions yet</h4><p className="mx-auto mt-2 max-w-lg text-sm text-muted">Start with one click. You will review every pause, question type and draft before it becomes part of the lesson.</p></div>}
               </section>
             )}
             {currentStep === "review" && lessonFlow === "standard" && (

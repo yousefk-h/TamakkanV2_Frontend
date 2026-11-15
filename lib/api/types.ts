@@ -45,9 +45,13 @@ export interface InteractiveVideoCheckpoint {
   completion_rule: InteractiveVideoCompletionRule;
 }
 
-export interface InteractiveVideoTimelineSuggestion extends InteractiveVideoCheckpoint {
+export type InteractiveVideoTimelineSuggestion = Omit<InteractiveVideoCheckpoint, "exercise_index"> & {
   rationale: string;
-}
+  /** A new editable activity proposed by AI. Older suggestions instead refer
+   * to an existing exercise_index. */
+  exercise_index: number | null;
+  exercise: LessonExercise | null;
+};
 
 /** A center-defined label mapped to one stable proficiency band. The mapping
  * keeps existing calendars and agents compatible while allowing the center
