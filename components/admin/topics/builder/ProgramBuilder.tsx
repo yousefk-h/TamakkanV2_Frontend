@@ -913,22 +913,16 @@ export function ProgramBuilder({
           </header>
 
           <nav aria-label="Lesson builder steps" className="shrink-0 border-b border-line bg-card px-4 py-3 md:px-8">
-            <div className="mx-auto flex max-w-[1200px] gap-2 overflow-x-auto pb-1">
+            <div className="mx-auto flex w-full max-w-none gap-2 overflow-x-auto pb-1">
               {BUILDER_STEPS.map((builderStep, index) => {
                 const number = index + 1;
                 const available = !!topicId || index === 0;
-                return <details key={builderStep.id} className="group min-w-[145px] shrink-0" open={step === number}>
-                  <summary onClick={() => { if (available) setStep(number); }} className={`flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-xl border px-3 text-sm font-bold transition-colors ${step === number ? "border-brand-blue bg-brand-primary-pale text-brand-blue" : "border-line bg-bg text-ink"} ${!available ? "pointer-events-none opacity-45" : ""}`}>
+                return <button key={builderStep.id} type="button" title={builderStep.blurb} disabled={!available} onClick={() => setStep(number)} className={`flex min-h-12 min-w-[132px] shrink-0 items-center gap-2 rounded-xl border px-3 text-start text-sm font-bold transition-colors ${step === number ? "border-brand-blue bg-brand-primary-pale text-brand-blue" : "border-line bg-bg text-ink"} disabled:cursor-not-allowed disabled:opacity-45`}>
                     <span className={`grid size-6 shrink-0 place-items-center rounded-full text-xs ${step > number ? "bg-brand-cyan text-white" : step === number ? "bg-brand-blue text-white" : "bg-line text-muted"}`}>{step > number ? "✓" : number}</span>
                     <span className="min-w-0 truncate">{builderStep.name}</span>
-                  </summary>
-                  <p className="px-2 pt-1.5 text-xs leading-relaxed text-muted">{builderStep.blurb}</p>
-                </details>;
+                </button>;
               })}
-              <details className="min-w-[155px] shrink-0 rounded-xl border border-line bg-bg px-3 py-2">
-                <summary className="cursor-pointer list-none text-sm font-bold text-ink">{t("builder.howThisWorks")}</summary>
-                <p className="mb-0 mt-1.5 text-xs leading-relaxed text-muted">{t("builder.howThisWorksDesc")}</p>
-              </details>
+              <span title={t("builder.howThisWorksDesc")} className="flex min-h-12 min-w-[155px] shrink-0 items-center rounded-xl border border-line bg-bg px-3 text-sm font-bold text-ink">{t("builder.howThisWorks")}</span>
             </div>
           </nav>
 
