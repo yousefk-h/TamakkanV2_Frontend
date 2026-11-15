@@ -157,17 +157,18 @@ export function ProgramBuilder({
   const [timelineSuggestionError, setTimelineSuggestionError] = useState<string | null>(null);
   const [timelineSuggestionAction, setTimelineSuggestionAction] = useState<number | null>(null);
   // The first four decisions are shared. From the flow choice onward these
-  // are deliberately different journeys: Standard owns Avatar + exercises;
-  // Interactive owns all answerable activities and checkpoint authoring in
-  // Video Studio. Do not "insert" a Studio into the Standard sequence again.
+  // are deliberately different journeys: Standard owns Avatar + exercises.
+  // Interactive asks AI (or the teacher) for a video plan first, then opens
+  // Video Studio only to review, edit and place those approved activities.
+  // Do not "insert" a Studio into the Standard sequence again.
   const BUILDER_STEPS = lessonFlow === "interactive_video"
     ? [
       { id: "basics", name: t("builder.stepName1"), blurb: t("builder.stepBlurb1") },
       { id: "source", name: t("builder.stepName2"), blurb: t("builder.stepBlurb2") },
       { id: "objectives", name: t("builder.stepName3"), blurb: t("builder.stepBlurb3") },
       { id: "flow", name: t("builder.stepName4"), blurb: t("builder.stepBlurb4") },
-      { id: "studio", name: "Video Studio", blurb: "Author every Interactive Video activity, then place its checkpoint on the uploaded video." },
       { id: "timeline", name: "AI video plan", blurb: "AI suggests pause moments and editable question drafts from the approved transcript." },
+      { id: "studio", name: "Video Studio", blurb: "Edit approved activities and place their checkpoints on the uploaded video." },
       { id: "review", name: "Teacher review & edit", blurb: "Review the uploaded video, activities and saved checkpoints before publishing." },
       { id: "publish", name: "Publish", blurb: t("builder.stepBlurb8") },
     ]
@@ -825,7 +826,7 @@ export function ProgramBuilder({
     }
     // Exercises are authored inside Studio for this flow. Saving them here
     // keeps their validation separate from the Standard Exercises step.
-    void saveExercisesAndContinue(6);
+    void saveExercisesAndContinue(7);
   };
 
   const handleGenerateExercises = async (index: number, count: number) => {
@@ -870,7 +871,7 @@ export function ProgramBuilder({
       setExercisesDirty(false);
       setInteractiveCheckpoints(updated.interactive_video_checkpoints);
       await refetchTopic();
-      if (action === "accept") setStep(5);
+      if (action === "accept") setStep(6);
     } catch (err) {
       setTimelineSuggestionError(err instanceof ApiError ? err.message : "This suggestion could not be updated. Please try again.");
     } finally {
@@ -1052,9 +1053,8 @@ export function ProgramBuilder({
               <section className="mx-auto max-w-[1240px] space-y-6">
                 <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale p-5">
                   <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Interactive Video Studio</p>
-                  <h3 className="mt-1 text-xl font-extrabold text-ink">Author activities and checkpoints in one place</h3>
-                  <p className="mt-1 max-w-3xl text-sm text-muted">Add an activity yourself, or let AI suggest question moments from the approved, timestamped video transcript. Every suggestion stays editable and private until you accept it.</p>
-                  <button type="button" onClick={() => setStep(6)} className="mt-4 min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">Ask AI to suggest questions →</button>
+                  <h3 className="mt-1 text-xl font-extrabold text-ink">Edit your approved question plan</h3>
+                  <p className="mt-1 max-w-3xl text-sm text-muted">Review and edit the activities you accepted from the AI plan, then place their pause points on the uploaded video. You can also add a question manually.</p>
                 </div>
                 <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!loadedTopic?.uploaded_video_url} hasVocabulary={false} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
                   lessonDraftJob={null} draftExercises={[]} onGenerateLessonDraft={() => undefined} lessonDraftStarting={false} lessonDraftError={null} onAcceptDraftExercise={() => undefined} onRejectDraftExercise={() => undefined} onRegenerateDraftExercise={() => undefined} draftExerciseActionIndex={null} exercisesDirty={exercisesDirty} interactiveVideo />
@@ -1079,7 +1079,7 @@ export function ProgramBuilder({
                   <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted">AI reads the approved transcript with its real video timestamps, then suggests a question type and a draft activity for each useful learning moment. Nothing is added for students until you accept it; after acceptance, edit it freely in Video Studio.</p>
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button type="button" disabled={suggestingTimeline || transcriptState !== "approved_for_ai"} onClick={() => void handleSuggestInteractiveTimeline()} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">{suggestingTimeline ? "Analyzing video…" : "Suggest questions from this video"}</button>
-                    <button type="button" disabled={suggestingTimeline} onClick={() => setStep(5)} className="min-h-11 rounded-lg border border-line bg-card px-4 text-sm font-bold text-ink">Add questions manually</button>
+                    <button type="button" disabled={suggestingTimeline} onClick={() => setStep(6)} className="min-h-11 rounded-lg border border-line bg-card px-4 text-sm font-bold text-ink">Add questions manually</button>
                   </div>
                   {transcriptState !== "approved_for_ai" && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">Approve the timestamped transcript in Source & transcript first. This keeps every AI suggestion tied to real spoken moments in the uploaded video.</p>}
                   {timelineSuggestionError && <p role="alert" className="mt-3 rounded-lg bg-brand-coral-pale p-3 text-sm text-brand-coral">{timelineSuggestionError}</p>}
@@ -1111,7 +1111,7 @@ export function ProgramBuilder({
               <section className="mx-auto max-w-[720px] space-y-4">
                 <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale p-5"><p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Interactive Video review</p><h3 className="mt-1 text-xl font-extrabold text-ink">Review the teacher-authored video lesson</h3><p className="mt-1 text-sm text-muted">This flow has no Avatar prompt or Standard exercise stage. Students will see only the uploaded video and its saved checkpoints.</p></div>
                 <dl className="grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-line bg-card p-4"><dt className="text-xs font-bold uppercase text-muted">Video</dt><dd className="mt-1 font-bold text-ink">{loadedTopic?.uploaded_video_url ? "Ready" : "Missing"}</dd></div><div className="rounded-xl border border-line bg-card p-4"><dt className="text-xs font-bold uppercase text-muted">Activities</dt><dd className="mt-1 font-bold text-ink">{exercises.length}</dd></div><div className="rounded-xl border border-line bg-card p-4"><dt className="text-xs font-bold uppercase text-muted">Saved checkpoints</dt><dd className="mt-1 font-bold text-ink">{interactiveCheckpoints.length}</dd></div></dl>
-                <button type="button" onClick={() => setStep(5)} className="min-h-11 rounded-lg border border-brand-blue px-4 text-sm font-bold text-brand-blue">Edit in Video Studio</button>
+                <button type="button" onClick={() => setStep(6)} className="min-h-11 rounded-lg border border-brand-blue px-4 text-sm font-bold text-brand-blue">Edit in Video Studio</button>
               </section>
             )}
             {currentStep === "publish" && (
@@ -1170,7 +1170,7 @@ export function ProgramBuilder({
                 {t("builder.continueBtn")}
               </button>
             ) : currentStep === "timeline" ? (
-              <button type="button" disabled={saving} onClick={() => setStep(7)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
+              <button type="button" disabled={saving} onClick={() => setStep(6)} className="min-h-11 min-w-0 sm:min-w-[125px] rounded-[9px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
                 {t("builder.continueBtn")}
               </button>
             ) : currentStep === "review" ? (

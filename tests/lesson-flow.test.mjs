@@ -24,14 +24,14 @@ test("Standard and Interactive paths use separate step definitions after flow se
   assert.match(builder, /currentStep === "timeline"/);
   assert.match(builder, /Suggest questions from this video/);
   assert.match(builder, /Accept & edit/);
+  assert.ok(builder.indexOf('id: "timeline"') < builder.indexOf('id: "studio"'));
 });
 
 test("Interactive authoring keeps activities and AI proposals in the dedicated video workflow", () => {
   assert.match(builder, /interactiveVideo \/>/);
-  assert.match(builder, /Add an activity yourself, or let AI suggest question moments/);
+  assert.match(builder, /Edit your approved question plan/);
   assert.match(builder, /onGenerate=\{handleGenerateExercises\}/);
-  assert.match(builder, /Ask AI to suggest questions/);
-  assert.match(builder, /saveExercisesAndContinue\(6\)/);
+  assert.match(builder, /saveExercisesAndContinue\(7\)/);
   assert.match(builder, /setStep\(8\)/);
 });
 
