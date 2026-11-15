@@ -28,8 +28,8 @@ test("Standard and Interactive paths use separate step definitions after flow se
 });
 
 test("Interactive authoring keeps activities and AI proposals in the dedicated video workflow", () => {
-  assert.match(builder, /interactiveVideo \/>/);
-  assert.match(builder, /Edit your approved question plan/);
+  assert.match(builder, /interactiveVideo compact/);
+  assert.match(builder, /Review questions, then place their pauses/);
   assert.match(builder, /onGenerate=\{handleGenerateExercises\}/);
   assert.match(builder, /saveExercisesAndContinue\(7\)/);
   assert.match(builder, /setStep\(8\)/);

@@ -20,7 +20,7 @@ test("Video Studio uses the uploaded video, saved checkpoints, and reviewed tran
   assert.match(studio, /updateInteractiveVideoTimeline/);
   assert.match(studio, /transcriptSegments\.map/);
   assert.match(studio, /Add checkpoint at/);
-  assert.match(studio, /Complete preview activity & resume/);
+  assert.match(studio, /Transcript &amp; timestamps/);
   assert.doesNotMatch(studio, /suggestInteractiveVideo|Gemini|draftInteractive/i);
   assert.doesNotMatch(studio, /onOpenExercises/);
   assert.match(studio, /Create a compatible exercise above first/);
@@ -29,7 +29,8 @@ test("Video Studio uses the uploaded video, saved checkpoints, and reviewed tran
   assert.match(studio, /max-w-full object-contain/);
 });
 
-test("Video Studio preview is local and never records learner activity", () => {
+test("Video Studio is authoring-only and never records learner activity", () => {
   assert.doesNotMatch(studio, /topicsApi\.(?:record|submit|grade|progress)/i);
-  assert.match(studio, /no progress is saved/);
+  assert.doesNotMatch(studio, /Complete preview activity & resume/);
+  assert.doesNotMatch(studio, /previewCheckpointId/);
 });

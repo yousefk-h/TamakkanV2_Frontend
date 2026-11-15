@@ -1047,11 +1047,11 @@ export function ProgramBuilder({
               <section className="mx-auto max-w-[1240px] space-y-6">
                 <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale p-5">
                   <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Interactive Video Studio</p>
-                  <h3 className="mt-1 text-xl font-extrabold text-ink">Edit your approved question plan</h3>
-                  <p className="mt-1 max-w-3xl text-sm text-muted">Review and edit the activities you accepted from the AI plan, then place their pause points on the uploaded video. You can also add a question manually.</p>
+                  <h3 className="mt-1 text-xl font-extrabold text-ink">Review questions, then place their pauses</h3>
+                  <p className="mt-1 max-w-3xl text-sm text-muted">Start with the AI questions you accepted. Edit only what you want, then confirm where each one pauses the video.</p>
                 </div>
                 <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={next => { setExercisesDirty(true); setExercises(next); setExerciseSuggestions(null); }} hasVideo={!!loadedTopic?.uploaded_video_url} hasVocabulary={false} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
-                  lessonDraftJob={null} draftExercises={[]} onGenerateLessonDraft={() => undefined} lessonDraftStarting={false} lessonDraftError={null} onAcceptDraftExercise={() => undefined} onRejectDraftExercise={() => undefined} onRegenerateDraftExercise={() => undefined} draftExerciseActionIndex={null} exercisesDirty={exercisesDirty} interactiveVideo />
+                  lessonDraftJob={null} draftExercises={[]} onGenerateLessonDraft={() => undefined} lessonDraftStarting={false} lessonDraftError={null} onAcceptDraftExercise={() => undefined} onRejectDraftExercise={() => undefined} onRegenerateDraftExercise={() => undefined} draftExerciseActionIndex={null} exercisesDirty={exercisesDirty} interactiveVideo compact />
                 <InteractiveVideoTimelineEditor
                   topicId={topicId}
                   uploadedVideoUrl={loadedTopic?.uploaded_video_url ?? null}

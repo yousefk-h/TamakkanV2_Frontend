@@ -41,7 +41,7 @@ function BlockDragHandle({ index, label }: { index: number; label: string }) {
     className={`min-h-11 min-w-11 cursor-grab touch-none rounded-lg border border-line bg-bg text-lg text-muted active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`} title={label}>⠿</button>;
 }
 
-export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty, interactiveVideo = false }: {
+export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty, interactiveVideo = false, compact = false, initialExpandedIndex = null }: {
   topicId: string | null;
   exercises: LessonExercise[];
   onExercisesChange: (exercises: LessonExercise[]) => void;
@@ -67,11 +67,16 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
    * drafts use the same reviewed source workflow as Standard lessons; only
    * the separate AI timeline-generation stage remains unavailable. */
   interactiveVideo?: boolean;
+  /** A deliberately small entry point for Video Studio. The full skill
+   * library is available only after choosing to add or edit a question. */
+  compact?: boolean;
+  initialExpandedIndex?: number | null;
 }) {
   const { t, locale } = useI18n();
   const exercises = rawExercises.map(withExerciseDefaults);
   const [draftCount, setDraftCount] = useState(3);
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(initialExpandedIndex);
+  const [questionEditorIndex, setQuestionEditorIndex] = useState<number | "add" | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -119,6 +124,27 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
   const isLessonDraftRunning = lessonDraftJob?.state === "running";
 
   const availableSkillKinds = interactiveVideo ? SKILL_KINDS.filter(kind => kind !== "speaking") : SKILL_KINDS;
+
+  if (compact && interactiveVideo) return <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Questions</p><h3 className="mt-1 text-lg font-extrabold text-ink">Your video question plan</h3><p className="mt-1 text-sm text-muted">Edit a question only when you need to. Its pause point is managed on the timeline below.</p></div>
+      <button type="button" onClick={() => setQuestionEditorIndex("add")} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">+ Add question</button>
+    </div>
+    {exercises.length === 0 ? <div className="mt-4 rounded-xl border border-dashed border-line bg-bg p-4 text-sm text-muted">No questions yet. Add one yourself or return to the AI video plan to accept suggestions.</div> : <ol className="mt-4 grid gap-2 sm:grid-cols-2">
+      {exercises.map((exercise, index) => <li key={index} className="flex min-w-0 items-center gap-3 rounded-xl border border-line bg-bg p-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-primary-pale text-sm font-extrabold text-brand-blue">{index + 1}</span>
+        <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold uppercase tracking-wide text-brand-blue">{exercise.kind.replaceAll("_", " ")}</p><p className="truncate text-sm font-semibold text-ink">{exercise.prompt || "Untitled question"}</p></div>
+        <button type="button" onClick={() => setQuestionEditorIndex(index)} className="min-h-10 shrink-0 rounded-lg border border-line px-3 text-sm font-bold text-brand-blue">Edit</button>
+      </li>)}
+    </ol>}
+    {questionEditorIndex !== null && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4">
+      <div className="relative max-h-[calc(100dvh-32px)] w-full max-w-[1240px] overflow-y-auto rounded-2xl bg-bg p-4 shadow-2xl sm:p-6">
+        <button type="button" onClick={() => setQuestionEditorIndex(null)} className="absolute right-4 top-4 z-10 grid size-11 place-items-center rounded-xl border-2 border-brand-coral bg-brand-coral-pale text-2xl font-bold leading-none text-brand-coral" aria-label="Close question editor">×</button>
+        <div className="pr-14"><p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Question editor</p><h3 className="mt-1 text-xl font-extrabold text-ink">{questionEditorIndex === "add" ? "Add a question" : `Edit question ${questionEditorIndex + 1}`}</h3><p className="mt-1 text-sm text-muted">Choose a type or edit the selected question. Save the lesson from Video Studio when you are done.</p></div>
+        <div className="mt-5"><Step4ExercisesSchedule key={questionEditorIndex === "add" ? "add" : `edit-${questionEditorIndex}`} topicId={topicId} exercises={exercises} onExercisesChange={onExercisesChange} hasVideo={hasVideo} hasVocabulary={hasVocabulary} canAiDraft={canAiDraft} generatingIndex={generatingIndex} suggestions={suggestions} onGenerate={onGenerate} onAcceptSuggestions={onAcceptSuggestions} onDiscardSuggestions={onDiscardSuggestions} lessonDraftJob={lessonDraftJob} draftExercises={draftExercises} onGenerateLessonDraft={onGenerateLessonDraft} lessonDraftStarting={lessonDraftStarting} lessonDraftError={lessonDraftError} onAcceptDraftExercise={onAcceptDraftExercise} onRejectDraftExercise={onRejectDraftExercise} onRegenerateDraftExercise={onRegenerateDraftExercise} draftExerciseActionIndex={draftExerciseActionIndex} exercisesDirty={exercisesDirty} interactiveVideo initialExpandedIndex={questionEditorIndex === "add" ? null : questionEditorIndex} /></div>
+      </div>
+    </div>}
+  </section>;
 
   return <section className="mx-auto max-w-[1200px] space-y-7">
     {!interactiveVideo && <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale/30 p-4">
