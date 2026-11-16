@@ -748,6 +748,18 @@ export const messagesApi = {
     request<MessagePage>(`${BACKEND_PREFIX}/messages/conversations/${conversationId}`, { params }),
   reply: (conversationId: string, body: string) =>
     request<MessagePublic>(`${BACKEND_PREFIX}/messages/conversations/${conversationId}/reply`, { method: "POST", json: { body } }),
+  /** Either participant of an existing conversation - same authorization
+   * boundary as `reply`. The actual bytes are validated server-side. */
+  sendImage: (conversationId: string, file: File | Blob) => {
+    const form = new FormData();
+    form.append("file", file, file instanceof File ? file.name : "photo.jpg");
+    return request<MessagePublic>(`${BACKEND_PREFIX}/messages/conversations/${conversationId}/image`, { method: "POST", form });
+  },
+  sendVoice: (conversationId: string, blob: Blob, filename: string) => {
+    const form = new FormData();
+    form.append("file", blob, filename);
+    return request<MessagePublic>(`${BACKEND_PREFIX}/messages/conversations/${conversationId}/audio`, { method: "POST", form });
+  },
   /** Teacher/Admin only - starts (or reuses) a 1:1 conversation with one
    * student they're actually authorized to reach. */
   startConversation: (studentId: string, body: string) =>

@@ -19,6 +19,28 @@ export const formatDate = (iso: string) => new Date(asUtcIso(iso)).toLocaleDateS
 
 export const formatDuration = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
+/** A chat message's own time-of-day, e.g. "9:30 AM" - the viewer's local
+ * time (not the fixed-UTC convention above): a message timestamp is
+ * inherently about "when did I see/send this", which only means something
+ * in the viewer's own clock. Safe here because every caller is a client-only
+ * chat UI that fetches its data after mount, not something server-rendered. */
+export const formatMessageTime = (iso: string) =>
+  new Date(asUtcIso(iso)).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+/** A chat date separator - "Today"/"Yesterday" in the viewer's own local
+ * calendar day, falling back to a plain date further back. `today` is
+ * passed in (rather than read via `new Date()` inside) so a list of
+ * messages rendered in one pass agrees on what "today" means even if the
+ * render straddles midnight mid-scroll. */
+export function formatDaySeparator(iso: string, today: Date = new Date()): string {
+  const date = new Date(asUtcIso(iso));
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(today) - startOfDay(date)) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, { year: diffDays > 300 ? "numeric" : undefined, month: "short", day: "numeric" });
+}
+
 /** Same fixed UTC timezone as `formatDate`, for the same reason - avoids a
  * server/client hydration mismatch on the runtime's local timezone. Used for
  * a scheduled class's date + time together (e.g. "Aug 20, 2026, 5:30 PM"). */

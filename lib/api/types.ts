@@ -317,12 +317,21 @@ export interface StudentLearningJourney {
 
 export type AnnouncementScope = "my_students" | "cohort" | "program" | "center";
 
+export type MessageKind = "text" | "image" | "audio";
+
 export interface MessagePublic extends BaseSchema {
   conversation_id: string;
   sender_id: string;
   sender_role: Role;
   sender_name: string | null;
+  kind: MessageKind;
   body: string;
+  /** IMAGE/AUDIO only - a freshly signed delivery URL, minted per response
+   * (both storages are Cloudinary's `authenticated` delivery type) - never
+   * cached/reused past this one response. */
+  media_url: string | null;
+  /** AUDIO only. */
+  media_duration_seconds: number | null;
   read_at: string | null;
   announcement_id: string | null;
   is_mine: boolean;
