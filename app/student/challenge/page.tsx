@@ -142,7 +142,13 @@ export default function StudentChallengePage() {
             {progress?.program_name ? t("studentHome.journeyBadgeFor", { program: progress.program_name }) : t("studentHome.journeyBadgeGeneric")}
           </span>
           <h2 className="my-2 text-[28px] tracking-tight md:text-[32px]">
-            {progressLoading ? t("common.loading") : progressError ? t("analytics.planError") : !progress?.program_start_date ? (progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsHeading") : t("analytics.noPlan")) : currentDay === 0 ? t("analytics.notStarted") : t("studentHome.challengeDay", { day: currentDay })}{" "}
+            {progressLoading ? t("common.loading") : progressError ? t("analytics.planError") :
+              /* `program_name` is null whenever no real calendar actually resolved for this student - including a
+              stale legacy `program_start_date` left pointing at a Program/level that no longer has an active
+              template (see `ProgressService._resolve_program_context`/`_resolve_template`). Checking it here,
+              not just `program_start_date`, is what keeps this heading from ever claiming a day count while the
+              lesson list below is genuinely empty. */
+              (!progress?.program_start_date || !progress?.program_name) ? (progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsHeading") : t("analytics.noPlan")) : currentDay === 0 ? t("analytics.notStarted") : t("studentHome.challengeDay", { day: currentDay })}{" "}
             {currentDay > 0 && <em className="text-base font-medium not-italic opacity-80">{t("studentHome.challengeDayOf", { total: challengeTotal })}</em>}
           </h2>
           <p className="m-0 text-sm opacity-90">{progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsNotice") : t("studentHome.challengeMomentum")}</p>

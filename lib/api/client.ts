@@ -169,19 +169,38 @@ async function parseApiError(response: Response): Promise<ApiError> {
   }
 }
 
+// Every call here was previously a bare `fetch` with no timeout - a stalled connection (a cold-starting backend,
+// a dropped network) left `loading` stuck `true` forever with no error ever surfacing (the exact "Loading your
+// lessons..." that never resolves symptom reported on the student Home page). 20s is generous for a normal
+// request while still guaranteeing every caller's `loading` state eventually clears into a retryable error.
+const REQUEST_TIMEOUT_MS = 20000;
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", json, form, params } = options;
 
   const headers: Record<string, string> = {};
   if (json !== undefined) headers["Content-Type"] = "application/json";
 
-  const response = await fetch(buildUrl(path, params), {
-    cache: options.cache,
-    keepalive: options.keepalive,
-    method,
-    headers,
-    body: form ?? (json !== undefined ? JSON.stringify(json) : undefined),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path, params), {
+      cache: options.cache,
+      keepalive: options.keepalive,
+      method,
+      headers,
+      body: form ?? (json !== undefined ? JSON.stringify(json) : undefined),
+      signal: controller.signal,
+    });
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "AbortError") {
+      throw new ApiError(0, "The request timed out. Check your connection and try again.");
+    }
+    throw new ApiError(0, "Could not reach the server. Check your connection and try again.");
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     throw await parseApiError(response);

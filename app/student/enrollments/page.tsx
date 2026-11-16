@@ -99,7 +99,13 @@ export default function MyEnrollmentsPage() {
             })}</div>}
           </li>)}
           {schedule.days.length === 0 && <li className="text-sm text-muted">{t("enrollments.noDays")}</li>}
-        </ul></>}
+        </ul>
+        {/* A template can genuinely have fewer authored days than its advertised `total_days` (e.g. content still
+        being added) - say so plainly instead of silently stopping the list, which otherwise looks like a broken
+        page rather than real, honestly-incomplete content. Never fabricates the missing days. */}
+        {schedule.days.length > 0 && schedule.days.length < schedule.total_days && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          {t("enrollments.contentNotYetAdded", { from: String(schedule.days.length + 1), total: String(schedule.total_days) })}
+        </p>}</>}
       </section>
     </div>}
   </main>;

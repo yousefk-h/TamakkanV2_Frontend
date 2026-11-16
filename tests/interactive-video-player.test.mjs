@@ -4,24 +4,31 @@ import { test } from "node:test";
 
 const player = fs.readFileSync(new URL("../components/student/player/InteractiveVideoLesson.tsx", import.meta.url), "utf8");
 
-test("Interactive Video fullscreen belongs to the lesson shell, not only the native video", () => {
-  assert.match(player, /stageRef\.current\?\.requestFullscreen/);
-  assert.match(player, /document\.fullscreenElement === stageRef\.current/);
+test("Interactive Video fullscreen is a single CSS-only control, not the real Fullscreen API - avoids the duplicate-fullscreen-button problem on Safari/iOS where a real requestFullscreen on a non-video element doesn't work", () => {
+  assert.doesNotMatch(player, /stageRef\.current\?\.requestFullscreen/);
+  assert.doesNotMatch(player, /document\.exitFullscreen/);
+  assert.match(player, /setLessonFullscreen\(v => !v\)/);
   assert.match(player, /Full lesson screen/);
   assert.match(player, /Exit full lesson screen/);
+  // Escape still exits, even without the real Fullscreen API's native Escape handling.
+  assert.match(player, /event\.key === "Escape"/);
+  // Still only one visible custom control, and the native video fullscreen button is suppressed where the
+  // browser honors it (a documented Safari/iOS limitation where it does not).
+  assert.match(player, /controlsList="nofullscreen"/);
 });
 
-test("the paused activity is a floating popup (docked on desktop, a bottom sheet on mobile), never a permanently reserved column or a dark full-screen backdrop", () => {
-  assert.match(player, /controlsList="nofullscreen"/);
+test("the paused activity is a bottom-up popup that covers the video/stage area on every breakpoint - never a permanently reserved side column, and never a separate page", () => {
   assert.match(player, /Complete this activity to continue/);
   assert.match(player, /onlyExerciseIndices=\{\[active\.exercise_index!\]\}/);
-  // Reserved only while `active`, never unconditionally - no permanent column.
-  assert.match(player, /\$\{active \? "sm:pr-\[380px\]" : ""\}/);
-  assert.match(player, /sm:absolute sm:inset-x-auto sm:left-auto sm:top-3 sm:bottom-auto sm:right-3/);
+  assert.doesNotMatch(player, /pr-\[380px\]/);
+  assert.doesNotMatch(player, /sm:absolute sm:inset-x-auto sm:left-auto sm:top-3 sm:bottom-auto sm:right-3/);
+  // Same `fixed inset-x-0 bottom-0` container on every breakpoint - no `sm:`-gated alternate (docked) position.
   assert.match(player, /fixed inset-x-0 bottom-0 z-40/);
-  // The mobile tap-outside-to-dismiss layer is explicitly transparent, not a dark overlay.
-  assert.match(player, /bg-transparent sm:hidden/);
-  assert.doesNotMatch(player, /bg-black\/[5-9]\d|bg-slate-950\/[5-9]\d/);
+  // A real backdrop over the video now (it's meant to cover/become the primary surface), with an entrance
+  // transition driven by `popupEntered`, not a one-shot transparent tap-layer.
+  assert.match(player, /bg-black\/50 backdrop-blur/);
+  assert.match(player, /popupEntered/);
+  assert.match(player, /transition-transform duration-300/);
 });
 
 test("Interactive playback still resumes only after the saved attempt unlocks its checkpoint", () => {

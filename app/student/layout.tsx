@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../../lib/auth/AuthContext";
 import { TopicsProvider } from "../../lib/topics/TopicsContext";
 import { StudentSubmissionsProvider } from "../../lib/submissions/StudentSubmissionsContext";
+import { useUnreadMessages } from "../../lib/hooks/useUnreadMessages";
 import { Sidebar } from "../../components/layout/Sidebar";
 import { Topbar } from "../../components/layout/Topbar";
 import { LoadingScreen } from "../../components/auth/LoadingScreen";
@@ -14,6 +15,7 @@ import { LoadingScreen } from "../../components/auth/LoadingScreen";
 export default function StudentLayout({ children }: { children: ReactNode }) {
   const { state, logout } = useAuth();
   const router = useRouter();
+  const unreadMessages = useUnreadMessages(state.status === "authenticated");
 
   useEffect(() => {
     if (state.status === "unauthenticated") router.replace("/");
@@ -28,7 +30,7 @@ export default function StudentLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar variant="student" canSwitchView={state.user.role !== "student"} onLogout={handleLogout} />
+      <Sidebar variant="student" canSwitchView={state.user.role !== "student"} onLogout={handleLogout} unreadMessages={unreadMessages} />
       <div className="app-content min-w-0 flex-1 lg:ms-[232px]">
         <Topbar canSwitchView={state.user.role !== "student"} onLogout={handleLogout} user={state.user} />
         <TopicsProvider>

@@ -512,6 +512,7 @@ export const en = {
     catchUp: "Available to catch up",
     lessonsWord: "lesson(s)",
     noDays: "No lessons scheduled yet.",
+    contentNotYetAdded: "Days {from}–{total} haven't been published yet. Ask your teacher if you expected more lessons here.",
     legacyTitle: "Your learning plan",
     enrollmentList: "Your active learning plans",
     loadError: "We couldn't load your learning plan. Please try again.",

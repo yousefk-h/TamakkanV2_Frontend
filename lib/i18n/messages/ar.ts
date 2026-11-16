@@ -509,6 +509,7 @@ export const ar = {
     catchUp: "متاح للتدارك",
     lessonsWord: "درس/دروس",
     noDays: "لا توجد دروس مجدولة بعد.",
+    contentNotYetAdded: "الأيام {from}–{total} لم تُنشر بعد. اسأل معلّمك إذا كنت تتوقّع دروسًا أكثر هنا.",
     legacyTitle: "خطة تعلّمك",
     enrollmentList: "خطط التعلّم النشطة",
     loadError: "تعذّر تحميل خطة تعلّمك. حاول مرة أخرى.",

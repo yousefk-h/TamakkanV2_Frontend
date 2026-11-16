@@ -41,8 +41,19 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
   const [retryNonce, setRetryNonce] = useState<Record<string, number>>({});
   const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null);
   const [lessonFullscreen, setLessonFullscreen] = useState(false);
+  // Entrance-only slide-up/fade-in for the bottom-up popup below - toggled a tick after `active` becomes truthy so
+  // the initial "off-screen" classes actually paint before the transition target classes apply.
+  const [popupEntered, setPopupEntered] = useState(false);
   const checkpoints = useMemo(() => [...topic.interactive_video_checkpoints].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds), [topic.interactive_video_checkpoints]);
   const active = checkpoints.find(item => item.id === activeCheckpointId) ?? null;
+  useEffect(() => {
+    // Synchronizing local animation state with an external change (which checkpoint, if any, is active) - not
+    // derivable from props/state alone, so this is the legitimate "subscribe to an external change" case.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!active) { setPopupEntered(false); return; }
+    const frame = requestAnimationFrame(() => setPopupEntered(true));
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
 
   // Fetches every Practice with Mariam checkpoint's completion once per checkpoint set, so an earlier-in-the-timeline
   // one already completed on a prior visit doesn't wrongly block `enforceSeek`/`enforceCheckpoint` below. A failed
@@ -134,37 +145,39 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
     setPracticeIssue(null);
     setActiveCheckpointId(null);
   }, []);
+  // Deliberately NOT the real Fullscreen API: Safari/iOS has no usable `Element.requestFullscreen` for a non-video
+  // element, which would leave this button doing nothing there while the video's own native fullscreen control
+  // stayed the only working one - a worse inconsistency than just not using the real API at all. A CSS-only
+  // "cover the viewport" state works identically on every browser (including Safari/iOS), needs no
+  // fullscreenchange listener to stay in sync with external changes, and still contains the popup correctly since
+  // it's a descendant of `stageRef` either way. Escape is wired manually since we're not using the real API.
   useEffect(() => {
-    const syncFullscreen = () => setLessonFullscreen(document.fullscreenElement === stageRef.current);
-    document.addEventListener("fullscreenchange", syncFullscreen);
-    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
-  }, []);
-  const toggleLessonFullscreen = useCallback(async () => {
-    try {
-      if (document.fullscreenElement === stageRef.current) await document.exitFullscreen();
-      else await stageRef.current?.requestFullscreen();
-    } catch {
-      // Fullscreen is a convenience only; native playback and answering still work.
-    }
-  }, []);
+    if (!lessonFullscreen) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setLessonFullscreen(false); };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [lessonFullscreen]);
+  const toggleLessonFullscreen = useCallback(() => setLessonFullscreen(v => !v), []);
 
   if (!topic.uploaded_video_url) return <p role="alert" className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">This interactive lesson is unavailable because its uploaded video is missing.</p>;
-  // The floating popup only ever reserves horizontal room on wider screens, and only while something is actually
-  // active - there is no permanently reserved exercise column either way. Below `sm` there is no room to reserve,
-  // so the popup becomes a bottom sheet overlaying the video's own corner instead (see the panel's own classes).
   return <div ref={stageRef} className={lessonFullscreen ? "relative h-[100dvh] bg-black p-3 sm:p-4" : "relative"}>
-    <div className={`relative overflow-hidden bg-brand-navy transition-[padding] duration-200 ${lessonFullscreen ? "h-full rounded-2xl" : "rounded-2xl shadow-card"} ${active ? "sm:pr-[380px]" : ""}`}>
+    <div className={`relative overflow-hidden bg-brand-navy ${lessonFullscreen ? "h-full rounded-2xl" : "rounded-2xl shadow-card"}`}>
+      {/* `controlsList="nofullscreen"` hides the native video fullscreen button in Chrome/Edge/Firefox, which
+      otherwise duplicates the button below - Safari ignores controlsList entirely and will still show its own, a
+      known platform limitation with no clean workaround short of replacing `controls` with a fully custom bar. */}
       <video ref={videoRef} src={topic.uploaded_video_url} controls controlsList="nofullscreen" playsInline preload="metadata" className={lessonFullscreen ? "h-full w-full object-contain" : "aspect-video w-full object-contain"} onPlay={onWatched} onTimeUpdate={enforceCheckpoint} onSeeking={enforceSeek} onLoadedMetadata={enforceSeek}>Your browser does not support video playback.</video>
-      <button type="button" onClick={() => void toggleLessonFullscreen()} className="absolute right-3 top-3 z-10 min-h-10 rounded-lg bg-brand-navy/90 px-3 text-sm font-bold text-white shadow-sm ring-1 ring-white/30">{lessonFullscreen ? "Exit full lesson screen" : "Full lesson screen"}</button>
+      <button type="button" onClick={toggleLessonFullscreen} className="absolute right-3 top-3 z-10 min-h-10 rounded-lg bg-brand-navy/90 px-3 text-sm font-bold text-white shadow-sm ring-1 ring-white/30">{lessonFullscreen ? "Exit full lesson screen" : "Full lesson screen"}</button>
 
-      {/* The floating activity popup: a docked card on the right edge from `sm` up (inside the padding this box
-      reserved above while active, so it never overlaps the video on a roomy screen), a bottom sheet below `sm`.
-      Never a full-screen dark backdrop - closing it (or tapping outside, on mobile) only minimizes it; the video
-      stays paused and the checkpoint stays incomplete until the server confirms otherwise. */}
+      {/* The activity popup now always rises from the bottom and covers the video/stage area - on every
+      breakpoint, not just mobile, and whether or not `lessonFullscreen` is on (this is a descendant of `stageRef`
+      either way, so it's contained correctly in both modes). It is the primary interaction surface while a
+      checkpoint is active: no permanently reserved column, no separate page. Dismissing it (✕, Escape, or tapping
+      the backdrop) only minimizes - the video stays paused and the checkpoint stays incomplete until the server
+      confirms otherwise; pressing play re-opens the same checkpoint via `enforceCheckpoint`/`enforceSeek`. */}
       {active && <>
-        <div onClick={closeActivityPopup} aria-hidden="true" className="fixed inset-0 z-30 bg-transparent sm:hidden" />
-        <section aria-live="polite" className="fixed inset-x-0 bottom-0 z-40 max-h-[75vh] overflow-y-auto rounded-t-3xl bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgb(0,0,0,0.25)] sm:absolute sm:inset-x-auto sm:left-auto sm:top-3 sm:bottom-auto sm:right-3 sm:w-[360px] sm:max-w-[calc(100%-1.5rem)] sm:rounded-2xl sm:pb-4 sm:shadow-2xl">
-          <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-line sm:hidden" aria-hidden="true" />
+        <div onClick={closeActivityPopup} aria-hidden="true" className={`fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px] transition-opacity duration-300 ${popupEntered ? "opacity-100" : "opacity-0"}`} />
+        <section aria-live="polite" className={`fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[85dvh] w-full overflow-y-auto rounded-t-3xl bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgb(0,0,0,0.35)] transition-transform duration-300 ease-out sm:max-w-xl sm:rounded-t-[28px] ${popupEntered ? "translate-y-0" : "translate-y-full"}`}>
+          <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-line" aria-hidden="true" />
           <div className="mb-3 flex items-start justify-between gap-2">
             <p className="m-0 text-sm font-extrabold text-brand-blue">{checkpointKind(active) === "practice_with_mariam" ? "Practice with Mariam to continue" : "Complete this activity to continue"}</p>
             <button type="button" onClick={closeActivityPopup} aria-label="Minimize activity" title="Minimize (your place is kept, nothing is marked complete)" className="grid size-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-bg hover:text-ink">✕</button>
