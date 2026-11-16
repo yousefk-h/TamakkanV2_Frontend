@@ -803,6 +803,7 @@ export const ar = {
     recordAgain: "↻ إعادة التسجيل",
   },
   mariamSession: {
+    lessonGoalLabel: "الهدف:",
     statusConnected: "متصل",
     statusInitializing: "مريم في طريقها للانضمام…",
     statusConnecting: "جارٍ الاتصال…",

@@ -9,14 +9,19 @@ test("Interactive Video fullscreen belongs to the lesson shell, not only the nat
   assert.match(player, /document\.fullscreenElement === stageRef\.current/);
   assert.match(player, /Full lesson screen/);
   assert.match(player, /Exit full lesson screen/);
-  assert.match(player, /lg:grid-cols-\[minmax\(0,2fr\)_minmax\(340px,1fr\)\]/);
 });
 
-test("A paused question stays beside the fullscreen video and native video fullscreen is suppressed", () => {
+test("the paused activity is a floating popup (docked on desktop, a bottom sheet on mobile), never a permanently reserved column or a dark full-screen backdrop", () => {
   assert.match(player, /controlsList="nofullscreen"/);
-  assert.match(player, /Video paused · complete this activity to continue/);
+  assert.match(player, /Complete this activity to continue/);
   assert.match(player, /onlyExerciseIndices=\{\[active\.exercise_index!\]\}/);
-  assert.match(player, /lg:rounded-r-2xl/);
+  // Reserved only while `active`, never unconditionally - no permanent column.
+  assert.match(player, /\$\{active \? "sm:pr-\[380px\]" : ""\}/);
+  assert.match(player, /sm:absolute sm:inset-x-auto sm:left-auto sm:top-3 sm:bottom-auto sm:right-3/);
+  assert.match(player, /fixed inset-x-0 bottom-0 z-40/);
+  // The mobile tap-outside-to-dismiss layer is explicitly transparent, not a dark overlay.
+  assert.match(player, /bg-transparent sm:hidden/);
+  assert.doesNotMatch(player, /bg-black\/[5-9]\d|bg-slate-950\/[5-9]\d/);
 });
 
 test("Interactive playback still resumes only after the saved attempt unlocks its checkpoint", () => {
@@ -47,5 +52,16 @@ test("a failed or incomplete practice session offers Retry/Exit instead of silen
   assert.match(player, /isCompleted = reason !== "error"/);
   assert.match(player, /Retry/);
   assert.match(player, /Exit for now/);
-  assert.match(player, /exitPractice/);
+  assert.match(player, /closeActivityPopup/);
+});
+
+test("closing/minimizing the popup never marks a checkpoint complete - it only hides it, same completion data path as before", () => {
+  assert.match(player, /const closeActivityPopup = useCallback\(\(\) => \{/);
+  assert.match(player, /setPracticeIssue\(null\);\s*\n\s*setActiveCheckpointId\(null\);/);
+  assert.doesNotMatch(player, /setActiveCheckpointId\(null\).*(sessionStatus|attempts).*=.*true/s);
+});
+
+test("a lesson-specific conversation goal is threaded into the Mariam overlay for a checkpoint, not shown generically", () => {
+  assert.match(player, /conversationGoal=\{active\.conversation_goal\}/);
+  assert.match(player, /learningObjective=\{active\.learning_objective\}/);
 });

@@ -125,10 +125,12 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
     setRetryNonce(current => ({ ...current, [checkpointId]: (current[checkpointId] ?? 0) + 1 }));
     setPracticeIssue(null);
   }, []);
-  // "Exit for now": closes the practice panel and leaves the video exactly where it is (already paused) without
-  // marking the checkpoint complete - never trapping the student on a broken session, never losing their place or
-  // silently granting credit. Pressing play again simply re-opens this same checkpoint via `enforceCheckpoint`.
-  const exitPractice = useCallback(() => {
+  // Closing the floating activity popup (exercise OR practice, "Exit for now" on a failed session, or the popup's
+  // own minimize control) leaves the video exactly where it is (already paused) without marking the checkpoint
+  // complete - never trapping the student on a broken session, never losing their place or silently granting
+  // credit, never letting a popup close count as completion. Pressing play again simply re-opens this same
+  // checkpoint via `enforceCheckpoint`/`enforceSeek`, which re-evaluate completion from server-backed state only.
+  const closeActivityPopup = useCallback(() => {
     setPracticeIssue(null);
     setActiveCheckpointId(null);
   }, []);
@@ -147,35 +149,52 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
   }, []);
 
   if (!topic.uploaded_video_url) return <p role="alert" className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">This interactive lesson is unavailable because its uploaded video is missing.</p>;
-  return <div ref={stageRef} className={lessonFullscreen ? "grid h-[100dvh] grid-rows-[minmax(0,1fr)_auto] gap-0 bg-brand-navy p-4 lg:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)] lg:grid-rows-1" : "space-y-4"}>
-    <div className={lessonFullscreen ? "relative min-h-0 overflow-hidden rounded-2xl bg-black" : "relative overflow-hidden rounded-2xl bg-brand-navy shadow-card"}>
+  // The floating popup only ever reserves horizontal room on wider screens, and only while something is actually
+  // active - there is no permanently reserved exercise column either way. Below `sm` there is no room to reserve,
+  // so the popup becomes a bottom sheet overlaying the video's own corner instead (see the panel's own classes).
+  return <div ref={stageRef} className={lessonFullscreen ? "relative h-[100dvh] bg-black p-3 sm:p-4" : "relative"}>
+    <div className={`relative overflow-hidden bg-brand-navy transition-[padding] duration-200 ${lessonFullscreen ? "h-full rounded-2xl" : "rounded-2xl shadow-card"} ${active ? "sm:pr-[380px]" : ""}`}>
       <video ref={videoRef} src={topic.uploaded_video_url} controls controlsList="nofullscreen" playsInline preload="metadata" className={lessonFullscreen ? "h-full w-full object-contain" : "aspect-video w-full object-contain"} onPlay={onWatched} onTimeUpdate={enforceCheckpoint} onSeeking={enforceSeek} onLoadedMetadata={enforceSeek}>Your browser does not support video playback.</video>
       <button type="button" onClick={() => void toggleLessonFullscreen()} className="absolute right-3 top-3 z-10 min-h-10 rounded-lg bg-brand-navy/90 px-3 text-sm font-bold text-white shadow-sm ring-1 ring-white/30">{lessonFullscreen ? "Exit full lesson screen" : "Full lesson screen"}</button>
-    </div>
-    {active ? <section aria-live="polite" className={lessonFullscreen ? "min-h-0 overflow-y-auto rounded-b-2xl bg-card p-4 lg:rounded-b-none lg:rounded-r-2xl" : "rounded-2xl border-2 border-brand-blue bg-brand-primary-pale p-3 sm:p-4"}>
-      {checkpointKind(active) === "practice_with_mariam" ? <>
-        <p className="mb-3 text-sm font-extrabold text-brand-blue">Video paused · practice with Mariam to continue</p>
-        {practiceIssue === active.id ? <div className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">
-          <p className="m-0 font-bold">The live session did not complete.</p>
-          <p className="m-0 mt-1 text-xs">You can try again, or exit for now - your place in the video is kept either way.</p>
-          <div className="mt-3 flex gap-2">
-            <button type="button" onClick={() => retryPractice(active.id)} className="min-h-10 rounded-lg bg-brand-blue px-3 text-sm font-bold text-white">Retry</button>
-            <button type="button" onClick={exitPractice} className="min-h-10 rounded-lg border border-line bg-card px-3 text-sm font-bold text-ink">Exit for now</button>
+
+      {/* The floating activity popup: a docked card on the right edge from `sm` up (inside the padding this box
+      reserved above while active, so it never overlaps the video on a roomy screen), a bottom sheet below `sm`.
+      Never a full-screen dark backdrop - closing it (or tapping outside, on mobile) only minimizes it; the video
+      stays paused and the checkpoint stays incomplete until the server confirms otherwise. */}
+      {active && <>
+        <div onClick={closeActivityPopup} aria-hidden="true" className="fixed inset-0 z-30 bg-transparent sm:hidden" />
+        <section aria-live="polite" className="fixed inset-x-0 bottom-0 z-40 max-h-[75vh] overflow-y-auto rounded-t-3xl bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgb(0,0,0,0.25)] sm:absolute sm:inset-x-auto sm:left-auto sm:top-3 sm:bottom-auto sm:right-3 sm:w-[360px] sm:max-w-[calc(100%-1.5rem)] sm:rounded-2xl sm:pb-4 sm:shadow-2xl">
+          <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-line sm:hidden" aria-hidden="true" />
+          <div className="mb-3 flex items-start justify-between gap-2">
+            <p className="m-0 text-sm font-extrabold text-brand-blue">{checkpointKind(active) === "practice_with_mariam" ? "Practice with Mariam to continue" : "Complete this activity to continue"}</p>
+            <button type="button" onClick={closeActivityPopup} aria-label="Minimize activity" title="Minimize (your place is kept, nothing is marked complete)" className="grid size-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-bg hover:text-ink">✕</button>
           </div>
-        </div> : <CheckpointMariamSession
-          key={`${active.id}-${retryNonce[active.id] ?? 0}`}
-          topicId={topic.id}
-          enrollmentId={enrollmentId}
-          checkpointId={active.id}
-          fixedDurationMinutes={active.session_duration_minutes ?? 2}
-          onEnded={reason => void handlePracticeEnded(active, reason)}
-        />}
-      </> : <>
-        <p className="mb-3 text-sm font-extrabold text-brand-blue">Video paused · complete this activity to continue</p>
-        {/* Exercise checkpoints always carry a real exercise_index - only "practice_with_mariam" (the branch above)
-        omits it; the type is optional purely to accommodate that other kind. */}
-        <LessonExercises topic={topic} enrollmentId={enrollmentId} onVideo={() => undefined} onDiscuss={onDiscuss} onlyExerciseIndices={[active.exercise_index!]} onAttemptSaved={receiveAttempt} onAttemptsLoaded={receiveAttempts} />
+          {checkpointKind(active) === "practice_with_mariam" ? (
+            practiceIssue === active.id ? <div className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">
+              <p className="m-0 font-bold">The live session did not complete.</p>
+              <p className="m-0 mt-1 text-xs">You can try again, or exit for now - your place in the video is kept either way.</p>
+              <div className="mt-3 flex gap-2">
+                <button type="button" onClick={() => retryPractice(active.id)} className="min-h-10 rounded-lg bg-brand-blue px-3 text-sm font-bold text-white">Retry</button>
+                <button type="button" onClick={closeActivityPopup} className="min-h-10 rounded-lg border border-line bg-card px-3 text-sm font-bold text-ink">Exit for now</button>
+              </div>
+            </div> : <CheckpointMariamSession
+              key={`${active.id}-${retryNonce[active.id] ?? 0}`}
+              topicId={topic.id}
+              enrollmentId={enrollmentId}
+              checkpointId={active.id}
+              fixedDurationMinutes={active.session_duration_minutes ?? 2}
+              conversationGoal={active.conversation_goal}
+              learningObjective={active.learning_objective}
+              onEnded={reason => void handlePracticeEnded(active, reason)}
+            />
+          ) : (
+            // Exercise checkpoints always carry a real exercise_index - only "practice_with_mariam" (the branch
+            // above) omits it; the type is optional purely to accommodate that other kind.
+            <LessonExercises topic={topic} enrollmentId={enrollmentId} onVideo={() => undefined} onDiscuss={onDiscuss} onlyExerciseIndices={[active.exercise_index!]} onAttemptSaved={receiveAttempt} onAttemptsLoaded={receiveAttempts} />
+          )}
+        </section>
       </>}
-    </section> : <p className={lessonFullscreen ? "flex items-center justify-center rounded-b-2xl bg-card p-4 text-center text-sm text-muted lg:rounded-b-none lg:rounded-r-2xl" : "rounded-xl bg-bg p-3 text-sm text-muted"}>Watch the video. It will pause at your lesson activities.</p>}
+    </div>
+    {!active && !lessonFullscreen && <p className="mt-3 text-sm text-muted">Watch the video. It will pause at your lesson activities.</p>}
   </div>;
 }

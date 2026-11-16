@@ -111,6 +111,8 @@ export function MariamSession({
   fixedDurationMinutes,
   compact,
   onEnded,
+  conversationGoal,
+  learningObjective,
 }: {
   topicId: string;
   enrollmentId?: string;
@@ -143,6 +145,11 @@ export function MariamSession({
   /** Fires once, whenever this checkpoint's session stops being live for any reason. Only meaningful (and only
    * ever called) when `checkpointId` is set. */
   onEnded?: (reason: "completed" | "error" | "user_ended") => void;
+  /** The checkpoint's own teacher-authored `conversation_goal`/`learning_objective` (see
+   * `InteractiveVideoCheckpoint`) - shown as a small lesson-specific header so the overlay feels tied to this exact
+   * paused moment, not a generic "Discuss with Mariam" tab. Only ever passed alongside `checkpointId`. */
+  conversationGoal?: string;
+  learningObjective?: string;
 }) {
   const { t } = useI18n();
   const { state: authState } = useAuth();
@@ -334,6 +341,13 @@ export function MariamSession({
 
   const toggleMic = useCallback(() => setMicRequested(prev => !prev), []);
 
+  const goalHeader = checkpointId && (conversationGoal || learningObjective) ? (
+    <div className="rounded-xl border border-brand-blue/25 bg-brand-primary-pale/70 p-3 text-xs leading-relaxed text-ink">
+      {learningObjective && <p className="m-0"><b className="text-brand-blue">{t("mariamSession.lessonGoalLabel")}</b> {learningObjective}</p>}
+      {conversationGoal && <p className={learningObjective ? "m-0 mt-1" : "m-0"}>{conversationGoal}</p>}
+    </div>
+  ) : null;
+
   if (phase === "live" && connection) {
     const { bindContainer, isLoading, status, error: avatarError, micError, isPublishingMicrophone, isMicMuted, isMariamSpeaking, agentState, isStudentSpeaking } = avatar;
     // Reflects what the student just clicked, not the (slightly delayed, and
@@ -368,6 +382,7 @@ export function MariamSession({
                     : t(STATUS_KEY[status]);
     return (
       <div className="flex flex-col gap-3 md:gap-4">
+        {goalHeader}
         <AvatarBox compact={compact}>
           <div ref={bindContainer} className="absolute inset-0 size-full" />
           {isLoading && (
@@ -446,6 +461,7 @@ export function MariamSession({
   return (
     <>
     <div className="flex flex-col gap-3 md:gap-4">
+      {goalHeader}
       <AvatarBox compact={compact}>
         {/* Deliberately a CSS background-image, not `next/image`'s `fill` +
         `object-fit` (which is what this was before, and stayed visibly

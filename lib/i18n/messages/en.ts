@@ -806,6 +806,7 @@ export const en = {
     recordAgain: "↻ Record again",
   },
   mariamSession: {
+    lessonGoalLabel: "Goal:",
     statusConnected: "Connected",
     statusInitializing: "Mariam is joining…",
     statusConnecting: "Connecting…",

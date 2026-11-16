@@ -12,12 +12,16 @@ export function CheckpointMariamSession({
   enrollmentId,
   checkpointId,
   fixedDurationMinutes,
+  conversationGoal,
+  learningObjective,
   onEnded,
 }: {
   topicId: string;
   enrollmentId?: string;
   checkpointId: string;
   fixedDurationMinutes?: number;
+  conversationGoal?: string;
+  learningObjective?: string;
   onEnded: (reason: "completed" | "error" | "user_ended") => void;
 }) {
   return (
@@ -27,6 +31,8 @@ export function CheckpointMariamSession({
       watched
       checkpointId={checkpointId}
       fixedDurationMinutes={fixedDurationMinutes}
+      conversationGoal={conversationGoal}
+      learningObjective={learningObjective}
       compact
       onEnded={onEnded}
     />
