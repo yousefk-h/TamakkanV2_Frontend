@@ -4,13 +4,19 @@ import { test } from "node:test";
 
 const player = fs.readFileSync(new URL("../components/student/player/InteractiveVideoLesson.tsx", import.meta.url), "utf8");
 
-test("Interactive Video fullscreen is a single CSS-only control, not the real Fullscreen API - avoids the duplicate-fullscreen-button problem on Safari/iOS where a real requestFullscreen on a non-video element doesn't work", () => {
-  assert.doesNotMatch(player, /stageRef\.current\?\.requestFullscreen/);
-  assert.doesNotMatch(player, /document\.exitFullscreen/);
-  assert.match(player, /setLessonFullscreen\(v => !v\)/);
+test("Interactive Video fullscreen uses the real Fullscreen API on the whole lesson stage where supported, with a feature-detected CSS-only fallback (not a browser-sniffed one) for environments like iOS Safari where it isn't", () => {
+  assert.match(player, /stage\.requestFullscreen\(\)/);
+  assert.match(player, /document\.exitFullscreen\(\)/);
+  assert.match(player, /document\.fullscreenEnabled/);
+  assert.match(player, /typeof stage\.requestFullscreen === "function"/);
+  assert.match(player, /cssFullscreenFallback/);
+  // Synced from real browser fullscreen changes (native Escape, or exiting via browser UI), not just set
+  // optimistically on click.
+  assert.match(player, /fullscreenchange/);
+  assert.match(player, /document\.fullscreenElement === stageRef\.current/);
   assert.match(player, /Full lesson screen/);
   assert.match(player, /Exit full lesson screen/);
-  // Escape still exits, even without the real Fullscreen API's native Escape handling.
+  // Escape is only handled manually for the CSS fallback - the real API already exits on Escape natively.
   assert.match(player, /event\.key === "Escape"/);
   // Still only one visible custom control, and the native video fullscreen button is suppressed where the
   // browser honors it (a documented Safari/iOS limitation where it does not).

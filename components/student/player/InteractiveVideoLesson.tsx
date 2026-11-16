@@ -41,6 +41,9 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
   const [retryNonce, setRetryNonce] = useState<Record<string, number>>({});
   const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null);
   const [lessonFullscreen, setLessonFullscreen] = useState(false);
+  // True only while fullscreen is active via the CSS-only fallback below (never together with a real
+  // `document.fullscreenElement`) - lets Escape/cleanup know which mechanism to unwind.
+  const [cssFullscreenFallback, setCssFullscreenFallback] = useState(false);
   // Entrance-only slide-up/fade-in for the bottom-up popup below - toggled a tick after `active` becomes truthy so
   // the initial "off-screen" classes actually paint before the transition target classes apply.
   const [popupEntered, setPopupEntered] = useState(false);
@@ -145,19 +148,58 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
     setPracticeIssue(null);
     setActiveCheckpointId(null);
   }, []);
-  // Deliberately NOT the real Fullscreen API: Safari/iOS has no usable `Element.requestFullscreen` for a non-video
-  // element, which would leave this button doing nothing there while the video's own native fullscreen control
-  // stayed the only working one - a worse inconsistency than just not using the real API at all. A CSS-only
-  // "cover the viewport" state works identically on every browser (including Safari/iOS), needs no
-  // fullscreenchange listener to stay in sync with external changes, and still contains the popup correctly since
-  // it's a descendant of `stageRef` either way. Escape is wired manually since we're not using the real API.
+  // The real Fullscreen API on the whole lesson stage (video + timeline/controls + any open checkpoint popup, all
+  // descendants of `stageRef`) where the browser actually supports it - this is the one real fullscreen, not an
+  // approximation, so the OS/browser's own chrome genuinely goes away and Escape/rotation/resize are handled by
+  // the platform itself. Synced here (not just set optimistically) so an external exit - the browser's own Escape
+  // handling, or the user exiting via browser UI - is always reflected.
   useEffect(() => {
-    if (!lessonFullscreen) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setLessonFullscreen(false); };
+    const syncFullscreen = () => {
+      if (document.fullscreenElement === stageRef.current) { setLessonFullscreen(true); return; }
+      // Only clear when the real API, not the CSS fallback, is what's active - the fallback has no
+      // `fullscreenElement` to sync from at all, and toggling it off is handled by `toggleLessonFullscreen`/Escape
+      // below instead.
+      if (!cssFullscreenFallback) setLessonFullscreen(false);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, [cssFullscreenFallback]);
+  // Escape only needs manual handling for the CSS fallback - the real Fullscreen API already exits on Escape
+  // natively, which `fullscreenchange` above picks up.
+  useEffect(() => {
+    if (!cssFullscreenFallback) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setCssFullscreenFallback(false); setLessonFullscreen(false); }
+    };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
+  }, [cssFullscreenFallback]);
+  const toggleLessonFullscreen = useCallback(async () => {
+    const stage = stageRef.current;
+    if (lessonFullscreen) {
+      if (document.fullscreenElement === stage) await document.exitFullscreen().catch(() => undefined);
+      setCssFullscreenFallback(false);
+      setLessonFullscreen(false);
+      return;
+    }
+    // Feature-detected, not browser-sniffed: Safari/iOS (and any other environment where a non-video element's
+    // Fullscreen API isn't usable) fails one of these checks and falls through to the CSS-only "fill the
+    // viewport" state below instead of silently doing nothing. Exiting fullscreen - either way - never touches
+    // the video's `currentTime`, the active checkpoint, or a live Mariam session; only the container's CSS
+    // changes, so progress/an open popup/an active call all survive untouched.
+    if (stage && document.fullscreenEnabled && typeof stage.requestFullscreen === "function") {
+      try {
+        await stage.requestFullscreen();
+        setLessonFullscreen(true);
+        return;
+      } catch {
+        // Falls through to the CSS fallback below - a real but unexpected rejection (e.g. a permissions-policy
+        // restriction) is not pretended to be a successful real fullscreen.
+      }
+    }
+    setCssFullscreenFallback(true);
+    setLessonFullscreen(true);
   }, [lessonFullscreen]);
-  const toggleLessonFullscreen = useCallback(() => setLessonFullscreen(v => !v), []);
 
   if (!topic.uploaded_video_url) return <p role="alert" className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">This interactive lesson is unavailable because its uploaded video is missing.</p>;
   return <div ref={stageRef} className={lessonFullscreen ? "relative h-[100dvh] bg-black p-3 sm:p-4" : "relative"}>
@@ -166,7 +208,7 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
       otherwise duplicates the button below - Safari ignores controlsList entirely and will still show its own, a
       known platform limitation with no clean workaround short of replacing `controls` with a fully custom bar. */}
       <video ref={videoRef} src={topic.uploaded_video_url} controls controlsList="nofullscreen" playsInline preload="metadata" className={lessonFullscreen ? "h-full w-full object-contain" : "aspect-video w-full object-contain"} onPlay={onWatched} onTimeUpdate={enforceCheckpoint} onSeeking={enforceSeek} onLoadedMetadata={enforceSeek}>Your browser does not support video playback.</video>
-      <button type="button" onClick={toggleLessonFullscreen} className="absolute right-3 top-3 z-10 min-h-10 rounded-lg bg-brand-navy/90 px-3 text-sm font-bold text-white shadow-sm ring-1 ring-white/30">{lessonFullscreen ? "Exit full lesson screen" : "Full lesson screen"}</button>
+      <button type="button" onClick={() => void toggleLessonFullscreen()} className="absolute right-3 top-3 z-10 min-h-10 rounded-lg bg-brand-navy/90 px-3 text-sm font-bold text-white shadow-sm ring-1 ring-white/30">{lessonFullscreen ? "Exit full lesson screen" : "Full lesson screen"}</button>
 
       {/* The activity popup now always rises from the bottom and covers the video/stage area - on every
       breakpoint, not just mobile, and whether or not `lessonFullscreen` is on (this is a descendant of `stageRef`

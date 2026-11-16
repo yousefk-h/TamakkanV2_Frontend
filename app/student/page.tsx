@@ -24,8 +24,14 @@ export default function StudentHomePage() {
     { step: "4", title: t("studentHome.howStep4Title"), desc: t("studentHome.howStep4Desc") },
   ];
   const { topics, topicsByLevel, loading, error: topicsError, refetch: refetchTopics } = useTopicsContext();
+  // `TopicsProvider` (mounted once per section in the layout) already fetches on its own first mount - calling
+  // `refetchTopics()` again here unconditionally meant every Home page mount fired a second, redundant request
+  // that raced the first (the first's in-flight promise gets cancelled via `useTopics`'s cleanup, not actually
+  // wasted bandwidth-wise, but a needless real HTTP round trip every single time, and a longer combined window
+  // where `loading` reads `true` - the "stuck Loading your lessons..." symptom gets easier to actually hit the
+  // slower/more loaded the backend is). Refetching on window focus (recovering data after the tab was
+  // backgrounded) is still legitimate and kept.
   useEffect(() => {
-    refetchTopics();
     window.addEventListener("focus", refetchTopics);
     return () => window.removeEventListener("focus", refetchTopics);
   }, [refetchTopics]);

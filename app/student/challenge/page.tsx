@@ -134,6 +134,27 @@ export default function StudentChallengePage() {
   const todaysCourses = days.find(d => d.day === currentDay && !restDays.includes(currentDay))?.courses ?? [];
   const todaysTopic = todaysCourses.find(c => c.state === "current")?.topic ?? todaysCourses[0]?.topic;
 
+  // `program_name` is null whenever no real calendar actually resolved for this student (see the heading below) -
+  // every other number on this page (percent ring, remaining-days count, milestones) must agree with that same
+  // gate, or the page can show "no plan" next to a populated percentage/milestone set, exactly the
+  // self-contradiction this page was reported to still have after an earlier fix only touched the heading text.
+  const hasRealPlan = !!(progress?.program_start_date && progress?.program_name) && !progressError;
+
+  // Week-by-week navigation: Week N covers days (N-1)*7+1..N*7 of the program's own real duration (never a fixed
+  // 30 - `challengeTotal` is `challenge_total_days` from the real resolved template, whatever its actual length
+  // is), so this works unchanged for a program shorter or longer than 30 days. Starts on the week containing
+  // today's real day.
+  const totalWeeks = Math.max(1, Math.ceil(challengeTotal / 7));
+  const [weekIndex, setWeekIndex] = useState(() => Math.min(totalWeeks - 1, Math.max(0, Math.floor((Math.max(1, currentDay) - 1) / 7))));
+  // `days` is already cheaply recomputed per render (not itself memoized) - chunking it is just as cheap, so this
+  // intentionally isn't wrapped in its own useMemo (which would need `days` as a dependency and gain nothing).
+  const weeks: (typeof days)[] = [];
+  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+  const clampedWeekIndex = Math.min(weekIndex, Math.max(0, weeks.length - 1));
+  const visibleDays = weeks[clampedWeekIndex] ?? [];
+  const weekFirstDay = clampedWeekIndex * 7 + 1;
+  const weekLastDay = Math.min(challengeTotal, weekFirstDay + 6);
+
   return (
     <main className="mx-auto max-w-[1510px] px-4 py-7 md:px-7.5">
       <section className="relative z-0 grid grid-cols-1 gap-6 overflow-hidden rounded-[20px] bg-gradient-to-br from-brand-hero-start via-brand-hero-mid to-brand-hero-end p-6 text-white shadow-(--shadow-brand-hero-strong) md:grid-cols-[1fr_140px] md:items-center md:p-7">
@@ -152,7 +173,10 @@ export default function StudentChallengePage() {
             {currentDay > 0 && <em className="text-base font-medium not-italic opacity-80">{t("studentHome.challengeDayOf", { total: challengeTotal })}</em>}
           </h2>
           <p className="m-0 text-sm opacity-90">{progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsNotice") : t("studentHome.challengeMomentum")}</p>
-          {progress && !progressError && <div className="mt-5 flex flex-wrap gap-4 text-sm">
+          {/* Gated on the exact same `hasRealPlan` the heading above uses - these numbers must never show a
+          populated percentage/streak/remaining-days next to a "no plan assigned" heading, which was the reported
+          self-contradiction left over after an earlier fix that only touched the heading text. */}
+          {hasRealPlan && <div className="mt-5 flex flex-wrap gap-4 text-sm">
             <b>{t("studentHome.challengeStreak", { count: progress?.current_streak ?? 0 })}</b>
             <span className="opacity-75">{t("studentHome.challengeRemaining", { count: Math.max(0, challengeTotal - currentDay) })}</span>
           </div>}
@@ -160,11 +184,11 @@ export default function StudentChallengePage() {
         </div>
         <div
           className="relative mx-auto grid size-27 place-items-center rounded-full"
-          style={{ background: `conic-gradient(white 0 ${challengePercent}%, rgba(255,255,255,.25) ${challengePercent}%)` }}
+          style={{ background: `conic-gradient(white 0 ${hasRealPlan ? challengePercent : 0}%, rgba(255,255,255,.25) ${hasRealPlan ? challengePercent : 0}%)` }}
         >
           <div className="absolute inset-[13px] rounded-full bg-brand-ring" />
           <div className="relative z-10 text-center">
-            <strong className="block text-xl">{progress?.program_start_date && !progressError ? `${challengePercent}%` : "—"}</strong>
+            <strong className="block text-xl">{hasRealPlan ? `${challengePercent}%` : "—"}</strong>
             <span className="block max-w-24 text-[10px] leading-tight opacity-80">{t("studentHome.challengeComplete")}</span>
           </div>
         </div>
@@ -192,11 +216,24 @@ export default function StudentChallengePage() {
         </section>
       )}
 
-      <section className="mt-8">
-        <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("challenge.dayByDay")}</span>
-        <h2 className="my-1 text-2xl tracking-tight">{t("challenge.calendarTitle")}</h2>
-        <p className="m-0 text-xs text-muted">{t("challenge.calendarHint")}</p>
+      <section className="mt-8 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("challenge.dayByDay")}</span>
+          <h2 className="my-1 text-2xl tracking-tight">{t("challenge.calendarTitle")}</h2>
+          <p className="m-0 text-xs text-muted">{t("challenge.calendarHint")}</p>
+        </div>
+        {/* Explicit week-by-week navigation, independent of the program's real length (`totalWeeks` derives from
+        `challengeTotal`, never a hardcoded 30) - browsing never bypasses lock state, it only changes which 7
+        days are rendered below; every cell keeps the exact same locked/current/done/missed logic either way. */}
+        {weeks.length > 1 && <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setWeekIndex(i => Math.max(0, i - 1))} disabled={clampedWeekIndex === 0}
+            aria-label={t("challenge.previousWeek")} className="grid size-10 min-h-10 place-items-center rounded-full border border-line bg-card text-sm font-bold disabled:opacity-40">‹</button>
+          <span className="min-w-28 text-center text-sm font-bold">{t("challenge.weekOf", { week: clampedWeekIndex + 1, total: weeks.length })}</span>
+          <button type="button" onClick={() => setWeekIndex(i => Math.min(weeks.length - 1, i + 1))} disabled={clampedWeekIndex >= weeks.length - 1}
+            aria-label={t("challenge.nextWeek")} className="grid size-10 min-h-10 place-items-center rounded-full border border-line bg-card text-sm font-bold disabled:opacity-40">›</button>
+        </div>}
       </section>
+      {weeks.length > 1 && <p className="mt-1 text-xs text-muted">{t("challenge.weekRange", { from: weekFirstDay, to: weekLastDay })}</p>}
 
       {pendingCount > 0 && (
         <section className="mt-4 flex items-center gap-3 rounded-2xl border border-brand-coral/30 bg-brand-coral/10 p-4">
@@ -213,8 +250,8 @@ export default function StudentChallengePage() {
         <p className="mt-4 text-sm text-muted">{t("challenge.noTemplateYet")}</p>
       ) : (
         <div className="mt-4 rounded-2xl border border-line bg-card p-5 shadow-card">
-          <div className="grid grid-cols-4 gap-2.5 min-[360px]:grid-cols-5 sm:grid-cols-6 md:grid-cols-10">
-            {days.map(d => {
+          <div className="grid grid-cols-4 gap-2.5 min-[360px]:grid-cols-5 sm:grid-cols-7">
+            {visibleDays.map(d => {
               const isEndOfWeek = restDays.includes(d.day);
               // End-of-week cells track their own check-in status, distinct
               // from the lesson day-state computed alongside: a check-in
@@ -445,7 +482,7 @@ export default function StudentChallengePage() {
         <h2 className="my-1 text-2xl tracking-tight">{t("challenge.milestones")}</h2>
       </section>
       <div className="mt-4 grid grid-cols-2 gap-3.5 sm:grid-cols-3">
-        {(progress?.milestones ?? CHALLENGE_MILESTONE_DAYS.map(day => ({ day, reached: false }))).map(m => (
+        {(hasRealPlan ? progress?.milestones ?? [] : CHALLENGE_MILESTONE_DAYS.map(day => ({ day, reached: false }))).map(m => (
           <article
             key={m.day}
             className={`rounded-2xl border border-line bg-card p-4 text-center shadow-card ${m.reached ? "" : "opacity-45 grayscale"}`}
@@ -459,7 +496,7 @@ export default function StudentChallengePage() {
         ))}
       </div>
 
-      {(todaysTopic ?? topics[0]) && (
+      {hasRealPlan && (todaysTopic ?? topics[0]) && (
         <div className="mt-5">
           <Link
             href={`/student/lessons/${(todaysTopic ?? topics[0]).id}`}
