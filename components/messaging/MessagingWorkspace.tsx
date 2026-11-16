@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useSearchParams } from "next/navigation";
 import { PenSquare } from "lucide-react";
 import { ApiError, cohortsApi, messagesApi, programsApi, usersApi } from "@/lib/api/client";
-import type { AnnouncementScope, AnnouncementSummary, CohortPublic, ConversationSummary, MessagePublic, ProgramPublic, TaughtStudent } from "@/lib/api/types";
+import type { AnnouncementScope, AnnouncementSummary, CohortPublic, ConversationSummary, MessagePublic, ProgramPublic } from "@/lib/api/types";
 import { formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { ChatHeader } from "./ChatHeader";
@@ -50,7 +50,7 @@ export function MessagingWorkspace({ canCompose, canBroadcastCenter }: { canComp
   const [showNewMessage, setShowNewMessage] = useState(!!prefillStudentId);
   const [newStudentId, setNewStudentId] = useState(prefillStudentId ?? "");
   const [studentQuery, setStudentQuery] = useState("");
-  const [studentMatches, setStudentMatches] = useState<TaughtStudent[]>([]);
+  const [studentMatches, setStudentMatches] = useState<{ id: string; full_name: string; email: string }[]>([]);
   const [newBody, setNewBody] = useState("");
   const [composeBusy, setComposeBusy] = useState(false);
 
@@ -101,12 +101,29 @@ export function MessagingWorkspace({ canCompose, canBroadcastCenter }: { canComp
     }
   }, [canCompose, prefillStudentId]);
 
+  // Two real reach models feed this one search box, matching the exact two
+  // ways `may_reach_student` (the backend's own send-authorization check)
+  // allows a Teacher/Admin to message a student: `myStudents` (Cohort/
+  // Enrollment reach) and `listStudentsPage` (the older `created_by_id`
+  // ownership - a Teacher's own roster, or every student in the center for
+  // an Administrator/Root). Searching only the former left this box with
+  // nothing to show whenever Cohorts/Enrollments are absent, even though
+  // sending itself would have worked - this searches both and merges by id.
   useEffect(() => {
     if (!canCompose || newStudentId || studentQuery.trim().length < 2) return;
     let cancelled = false;
-    usersApi.myStudents({ search: studentQuery.trim(), limit: 8 })
-      .then(page => { if (!cancelled) setStudentMatches(page.items); })
-      .catch(() => { if (!cancelled) setStudentMatches([]); });
+    const query = studentQuery.trim();
+    Promise.allSettled([
+      usersApi.myStudents({ search: query, limit: 8 }),
+      usersApi.listStudentsPage({ search: query, page: 1, limit: 8 }),
+    ]).then(([cohortResult, ownedResult]) => {
+      if (cancelled) return;
+      const cohortMatches = cohortResult.status === "fulfilled" ? cohortResult.value.items : [];
+      const ownedMatches = ownedResult.status === "fulfilled" ? ownedResult.value.items : [];
+      const byId = new Map<string, { id: string; full_name: string; email: string }>();
+      for (const match of [...cohortMatches, ...ownedMatches]) byId.set(match.id, match);
+      setStudentMatches([...byId.values()]);
+    });
     return () => { cancelled = true; };
   }, [canCompose, newStudentId, studentQuery]);
 
