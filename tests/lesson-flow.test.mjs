@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const builder = fs.readFileSync(new URL("../components/admin/topics/builder/ProgramBuilder.tsx", import.meta.url), "utf8");
 const flowStep = fs.readFileSync(new URL("../components/admin/topics/builder/Step4LessonFlow.tsx", import.meta.url), "utf8");
+const studio = fs.readFileSync(new URL("../components/admin/topics/builder/InteractiveVideoTimelineEditor.tsx", import.meta.url), "utf8");
 
 test("lesson flow is an explicit persisted builder step", () => {
   assert.match(builder, /Step4LessonFlow/);
@@ -28,8 +29,13 @@ test("Standard and Interactive paths use separate step definitions after flow se
 });
 
 test("Interactive authoring keeps activities and AI proposals in the dedicated video workflow", () => {
-  assert.match(builder, /interactiveVideo compact/);
+  // Video Studio now owns its own question list/editor internally (one
+  // workspace instead of two stacked panels) - the wiring moved from
+  // ProgramBuilder.tsx into InteractiveVideoTimelineEditor.tsx, reusing the
+  // same `interactiveVideo compact` form, not a new one.
+  assert.match(studio, /interactiveVideo compact hideOwnList/);
   assert.match(builder, /Review questions, then place their pauses/);
+  assert.match(studio, /onGenerate=\{onGenerate\}/);
   assert.match(builder, /onGenerate=\{handleGenerateExercises\}/);
   assert.match(builder, /saveExercisesAndContinue\(7\)/);
   assert.match(builder, /setStep\(8\)/);
