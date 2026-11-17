@@ -5,6 +5,8 @@ import { topicsApi } from "@/lib/api/client";
 import type { ExerciseAttemptPublic, InteractiveVideoCheckpoint, TopicPublic } from "@/lib/api/types";
 import { CheckpointMariamSession } from "./CheckpointMariamSession";
 import { LessonExercises } from "./LessonExercises";
+import { activityKindLabel } from "@/lib/player/activityKind";
+import { useI18n } from "@/lib/i18n/LocaleProvider";
 
 /** Defaults a checkpoint without a `kind` to "exercise" - same convention the backend applies server-side, kept
  * here too so older/unmigrated checkpoints (and any client code still constructing one without `kind`) keep working
@@ -27,6 +29,7 @@ function completed(checkpoint: InteractiveVideoCheckpoint, attempt: ExerciseAtte
  * has no reliable playback API, and pretending to pause it would be a bypass.
  */
 export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatched }: { topic: TopicPublic; enrollmentId?: string; onDiscuss: () => void; onWatched: () => void }) {
+  const { t } = useI18n();
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [attempts, setAttempts] = useState<Record<number, ExerciseAttemptPublic>>({});
@@ -49,6 +52,7 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
   const [popupEntered, setPopupEntered] = useState(false);
   const checkpoints = useMemo(() => [...topic.interactive_video_checkpoints].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds), [topic.interactive_video_checkpoints]);
   const active = checkpoints.find(item => item.id === activeCheckpointId) ?? null;
+  const activeIndex = active ? checkpoints.findIndex(item => item.id === active.id) : -1;
   useEffect(() => {
     // Synchronizing local animation state with an external change (which checkpoint, if any, is active) - not
     // derivable from props/state alone, so this is the legitimate "subscribe to an external change" case.
@@ -224,6 +228,7 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
             <p className="m-0 text-sm font-extrabold text-brand-blue">{checkpointKind(active) === "practice_with_mariam" ? "Practice with Mariam to continue" : "Complete this activity to continue"}</p>
             <button type="button" onClick={closeActivityPopup} aria-label="Minimize activity" title="Minimize (your place is kept, nothing is marked complete)" className="grid size-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-bg hover:text-ink">✕</button>
           </div>
+          <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted">{t("player.exerciseProgress", { current: activeIndex + 1, total: checkpoints.length })} · {activityKindLabel(checkpointKind(active), t)}</p>
           {checkpointKind(active) === "practice_with_mariam" ? (
             practiceIssue === active.id ? <div className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">
               <p className="m-0 font-bold">The live session did not complete.</p>

@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { test } from "node:test";
 
 const player = fs.readFileSync(new URL("../components/student/player/InteractiveVideoLesson.tsx", import.meta.url), "utf8");
+const lessonExercises = fs.readFileSync(new URL("../components/student/player/LessonExercises.tsx", import.meta.url), "utf8");
+const activityKind = fs.readFileSync(new URL("../lib/player/activityKind.ts", import.meta.url), "utf8");
 
 test("Interactive Video fullscreen uses the real Fullscreen API on the whole lesson stage where supported, with a feature-detected CSS-only fallback (not a browser-sniffed one) for environments like iOS Safari where it isn't", () => {
   assert.match(player, /stage\.requestFullscreen\(\)/);
@@ -77,4 +79,26 @@ test("closing/minimizing the popup never marks a checkpoint complete - it only h
 test("a lesson-specific conversation goal is threaded into the Mariam overlay for a checkpoint, not shown generically", () => {
   assert.match(player, /conversationGoal=\{active\.conversation_goal\}/);
   assert.match(player, /learningObjective=\{active\.learning_objective\}/);
+});
+
+test("the active checkpoint panel renders an 'Activity X of Y' progress indicator computed from the already-sorted checkpoints array", () => {
+  assert.match(player, /const activeIndex = active \? checkpoints\.findIndex\(item => item\.id === active\.id\) : -1;/);
+  assert.match(player, /t\("player\.exerciseProgress", \{ current: activeIndex \+ 1, total: checkpoints\.length \}\)/);
+});
+
+test("no raw internal exercise_index/completion_rule/checkpoint kind string is interpolated directly into student-facing JSX text", () => {
+  // `exercise_index`/`completion_rule`/`.kind` appear throughout this file in comparisons, lookups and comments
+  // (all fine) - what must never appear is one spliced directly into rendered text, e.g. `{active.kind}` or
+  // `{checkpoint.completion_rule}` or `{active.exercise_index}` standing alone as display copy.
+  for (const file of [player, lessonExercises]) {
+    assert.doesNotMatch(file, /\{(?:active|checkpoint|item)\.completion_rule\}/);
+    assert.doesNotMatch(file, /\{(?:active|checkpoint|item)\.kind\}/);
+    assert.doesNotMatch(file, /\{(?:active|checkpoint|item)\.exercise_index\}/);
+    assert.doesNotMatch(file, /\{exercise\.kind\}/);
+    assert.doesNotMatch(file, /exercise\.kind\.replaceAll/);
+  }
+  // Instead, both render through the shared, translated label helper.
+  assert.match(player, /activityKindLabel\(checkpointKind\(active\), t\)/);
+  assert.match(lessonExercises, /activityKindLabel\(exercise\.kind, t\)/);
+  assert.match(activityKind, /practice_with_mariam: "player\.activityTypeMariam"/);
 });
