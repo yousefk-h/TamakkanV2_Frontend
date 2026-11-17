@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ApiError, cohortsApi, levelProfilesApi, programsApi, teachersApi, topicsApi } from "@/lib/api/client";
-import type { CohortPublic, LevelProfilePublic, ProgramPublic, TopicListItem, UserPublic } from "@/lib/api/types";
+import type { CohortPublic, LevelProfilePublic, ProgramPublic, TopicListItem, UnlockPolicy, UserPublic } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 import { LEVEL_LABEL } from "@/lib/topics/helpers";
@@ -165,11 +165,12 @@ export default function ProgramWorkspacePage() {
 function ProgramStagesEditor({ program, profiles, onSaved }: { program: ProgramPublic; profiles: LevelProfilePublic[]; onSaved: () => void }) {
   const { t } = useI18n();
   const [stages, setStages] = useState(program.levels);
+  const [unlockPolicy, setUnlockPolicy] = useState<UnlockPolicy>(program.unlock_policy);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   // Keeps the editor in sync after a save elsewhere reloads the Program.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setStages(program.levels); }, [program.levels]);
+  useEffect(() => { setStages(program.levels); setUnlockPolicy(program.unlock_policy); }, [program.levels, program.unlock_policy]);
 
   const save = async () => {
     setSaving(true); setError("");
@@ -179,6 +180,7 @@ function ProgramStagesEditor({ program, profiles, onSaved }: { program: ProgramP
         base_levels: Array.from(new Set(stages.map(stage => stage.difficulty_level))),
         level_profile_ids: Array.from(new Set(stages.filter(stage => stage.level_profile_id).map(stage => stage.level_profile_id as string))),
         levels: stages,
+        unlock_policy: unlockPolicy,
       });
       onSaved();
     } catch (cause) { setError(cause instanceof ApiError ? cause.message : t("programs.saveError")); }
@@ -187,6 +189,20 @@ function ProgramStagesEditor({ program, profiles, onSaved }: { program: ProgramP
 
   return <div className="grid gap-3">
     <StageListEditor stages={stages} onChange={setStages} profiles={profiles} />
+    <fieldset className="rounded-2xl border border-line bg-page p-4">
+      <legend className="px-1 text-sm font-bold">{t("programs.unlockPolicyLabel")}</legend>
+      <p className="mb-3 text-sm text-muted">{t("programs.unlockPolicyHelp")}</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-bold ${unlockPolicy === "schedule" ? "border-brand-blue bg-brand-primary-pale text-brand-blue" : "border-line bg-card text-muted"}`}>
+          <input type="radio" name="unlock_policy" className="accent-brand-blue" checked={unlockPolicy === "schedule"} onChange={() => setUnlockPolicy("schedule")} />
+          {t("programs.unlockPolicySchedule")}
+        </label>
+        <label className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-bold ${unlockPolicy === "completion" ? "border-brand-blue bg-brand-primary-pale text-brand-blue" : "border-line bg-card text-muted"}`}>
+          <input type="radio" name="unlock_policy" className="accent-brand-blue" checked={unlockPolicy === "completion"} onChange={() => setUnlockPolicy("completion")} />
+          {t("programs.unlockPolicyCompletion")}
+        </label>
+      </div>
+    </fieldset>
     {error && <p role="alert" className="rounded-xl bg-brand-coral-pale p-3 text-sm text-brand-coral">{error}</p>}
     <button onClick={save} disabled={saving || stages.length === 0} className="min-h-11 w-fit rounded-xl bg-brand-blue px-4 text-sm font-bold text-white disabled:opacity-40">
       {saving ? t("common.saving") : t("programs.stagesSave")}
