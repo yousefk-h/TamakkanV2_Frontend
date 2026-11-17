@@ -961,9 +961,22 @@ export function ProgramBuilder({
     applyExercisesChange(next);
   };
 
+  // Requirement: never silently discard unsaved Video Studio/exercise edits -
+  // warn both on a hard browser navigation and on the in-app close action.
+  useEffect(() => {
+    if (!videoStudioDirty && !exercisesDirty) return;
+    const handler = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [videoStudioDirty, exercisesDirty]);
+  const handleCloseAttempt = () => {
+    if ((videoStudioDirty || exercisesDirty) && !window.confirm("You have unsaved changes in this lesson. Close without saving them?")) return;
+    onClose();
+  };
+
   return (
     <Dialog
-      onClose={onClose}
+      onClose={handleCloseAttempt}
       ariaLabel={t("builder.title")}
       className="fixed inset-0 z-[60] h-[calc(var(--dialog-available-height,100dvh)-24px)] w-full rounded-2xl border-0 bg-bg p-0"
     >
@@ -1121,8 +1134,6 @@ export function ProgramBuilder({
                   <p className="mt-1 max-w-3xl text-sm text-muted">Start with the AI questions you accepted. Edit only what you want, then confirm where each one pauses the video.</p>
                 </div>
                 {checkpointRemapNotice && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><div className="flex items-start justify-between gap-3"><p className="min-w-0">{checkpointRemapNotice}</p><button type="button" onClick={() => setCheckpointRemapNotice(null)} className="shrink-0 text-xs font-bold text-amber-900 underline">Dismiss</button></div></div>}
-                <Step4ExercisesSchedule topicId={topicId} exercises={exercises} onExercisesChange={applyExercisesChange} hasVideo={!!loadedTopic?.uploaded_video_url} hasVocabulary={false} canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100} generatingIndex={generatingExerciseIndex} suggestions={exerciseSuggestions} onGenerate={handleGenerateExercises} onAcceptSuggestions={handleAcceptSuggestions} onDiscardSuggestions={() => setExerciseSuggestions(null)}
-                  lessonDraftJob={null} draftExercises={[]} onGenerateLessonDraft={() => undefined} lessonDraftStarting={false} lessonDraftError={null} onAcceptDraftExercise={() => undefined} onRejectDraftExercise={() => undefined} onRegenerateDraftExercise={() => undefined} draftExerciseActionIndex={null} exercisesDirty={exercisesDirty} interactiveVideo compact />
                 <InteractiveVideoTimelineEditor
                   topicId={topicId}
                   uploadedVideoUrl={loadedTopic?.uploaded_video_url ?? null}
@@ -1133,6 +1144,18 @@ export function ProgramBuilder({
                   enabled={persistedLessonFlow === "interactive_video"}
                   onSaved={setInteractiveCheckpoints}
                   onDirtyChange={setVideoStudioDirty}
+                  onExercisesChange={applyExercisesChange}
+                  hasVideo={!!loadedTopic?.uploaded_video_url}
+                  hasVocabulary={false}
+                  canAiDraft={(loadedTopic?.approved_transcript?.trim().length ?? 0) >= 100}
+                  generatingIndex={generatingExerciseIndex}
+                  suggestions={exerciseSuggestions}
+                  onGenerate={handleGenerateExercises}
+                  onAcceptSuggestions={handleAcceptSuggestions}
+                  onDiscardSuggestions={() => setExerciseSuggestions(null)}
+                  exercisesDirty={exercisesDirty}
+                  learningObjectives={objectivesApproved ? learningObjectives : []}
+                  vocabulary={vocabulary}
                 />
               </section>
             )}

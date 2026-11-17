@@ -18,7 +18,7 @@ test("interactive flow plans questions before opening Video Studio for editing",
 test("Video Studio uses the uploaded video, saved checkpoints, and reviewed transcript only", () => {
   assert.match(studio, /<video key=\{videoRetryKey\} ref=/);
   assert.match(studio, /updateInteractiveVideoTimeline/);
-  assert.match(studio, /transcriptSegments\.map/);
+  assert.match(studio, /transcriptSegments\s*\n?\s*\.map/);
   assert.match(studio, /Add checkpoint at/);
   assert.match(studio, /Transcript &amp; timestamps/);
   assert.doesNotMatch(studio, /suggestInteractiveVideo|Gemini|draftInteractive/i);
@@ -46,16 +46,18 @@ test("the marker panel can switch a checkpoint's kind, and hides/shows the right
   assert.match(studio, /Required activity/);
 });
 
-test("Save is disabled, with an inline error, when a Practice with Mariam marker is missing its goal/opening line", () => {
+test("Save is disabled, with an inline error, when a Practice with Mariam marker is missing its goal/opening line, or a checkpoint is at/after the video end", () => {
   assert.match(studio, /function practiceInvalid/);
   assert.match(studio, /invalidPractice = items\.some\(practiceInvalid\)/);
-  assert.match(studio, /disabled=\{saving \|\| !items\.length \|\| saved \|\| invalidPractice\}/);
+  assert.match(studio, /hasInvalidTimestamp = items\.some\(timestampInvalid\)/);
+  assert.match(studio, /disabled=\{saving \|\| !items\.length \|\| saved \|\| invalidPractice \|\| hasInvalidTimestamp\}/);
 });
 
-test("convert-to-practice calls the dedicated endpoint and refreshes the checkpoint list from its response", () => {
-  assert.match(studio, /Convert to Practice with Mariam…/);
-  assert.match(studio, /topicsApi\.convertCheckpointToPractice\(topicId, convertingId, convertDraft\)/);
-  assert.match(studio, /setItems\(updated\.interactive_video_checkpoints\)/);
+test("a checkpoint's kind has exactly one selector - the Question/Practice with Mariam tabs - with no separate, redundant 'Convert' control", () => {
+  assert.match(studio, /role="tablist" aria-label="Checkpoint activity"/);
+  assert.doesNotMatch(studio, /Convert to Practice with Mariam/);
+  assert.doesNotMatch(studio, /convertCheckpointToPractice/);
+  assert.doesNotMatch(studio, /convertingId|convertDraft/);
 });
 
 test("the AI-suggested-draft review panel renders a distinct Practice with Mariam suggestion", () => {
@@ -64,4 +66,56 @@ test("the AI-suggested-draft review panel renders a distinct Practice with Maria
   assert.match(builder, /suggestion\.conversation_goal/);
   assert.match(builder, /suggestion\.opening_line/);
   assert.match(builder, /suggestion\.session_duration_minutes/);
+});
+
+test("Video Studio is a single two-column authoring workspace: video+timeline on one side, a focused checkpoint list/editor on the other", () => {
+  assert.match(studio, /lg:grid-cols-\[minmax\(0,1fr\)_400px\]/);
+  // Selecting a checkpoint swaps the list for a focused editor panel (not a
+  // giant form appended below the page), with a way back to the list.
+  assert.match(studio, /Back to checkpoints/);
+  assert.match(studio, /selected \? editorPanel : listPanel/);
+  // The same panel becomes a bottom drawer/overlay below the `lg` breakpoint,
+  // not a second page layout.
+  assert.match(studio, /max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0/);
+});
+
+test("the checkpoint list clearly distinguishes placed checkpoints from questions not yet placed on the timeline", () => {
+  assert.match(studio, /unplacedExercises/);
+  assert.match(studio, /Questions not yet on the timeline/);
+  assert.match(studio, /const placeExercise = \(index: number\)/);
+  assert.match(studio, /onClick=\{\(\) => placeExercise\(index\)\}/);
+});
+
+test("Video Studio reuses the existing question add/edit form instead of duplicating it", () => {
+  assert.match(studio, /import \{ Step4ExercisesSchedule \} from "\.\/Step4ExercisesSchedule"/);
+  assert.match(studio, /<Step4ExercisesSchedule/);
+  assert.match(studio, /hideOwnList/);
+  assert.match(studio, /openRequest=\{questionEditorRequest\}/);
+  // The old Video Studio step rendered its own separate compact question
+  // list above the editor; that list now lives inside this one component.
+  assert.doesNotMatch(builder, /interactiveVideo compact/);
+});
+
+test("the transcript is an on-demand, searchable drawer, not a wall of text under the editor", () => {
+  assert.match(studio, /transcriptOpen/);
+  assert.match(studio, /type="search" value=\{transcriptQuery\}/);
+  assert.match(studio, /filteredTranscript/);
+});
+
+test("a dedicated, non-publishing Student Preview action exists for Video Studio", () => {
+  assert.match(studio, /Preview as student/);
+  assert.match(studio, /previewOpen/);
+  assert.match(studio, /ExercisePreviewCard/);
+  assert.doesNotMatch(studio, /topicsApi\.(?:create|update)\(/);
+});
+
+test("a checkpoint at or after the video's real duration is rejected, not silently accepted", () => {
+  assert.match(studio, /const timestampInvalid = \(item: InteractiveVideoCheckpoint\) => hasMediaDuration && item\.timestamp_seconds >= duration/);
+  assert.match(studio, /const changeTimestamp = /);
+});
+
+test("unsaved Video Studio changes warn before the teacher navigates away", () => {
+  assert.match(builder, /beforeunload/);
+  assert.match(builder, /handleCloseAttempt/);
+  assert.match(builder, /videoStudioDirty \|\| exercisesDirty/);
 });

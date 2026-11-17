@@ -8,6 +8,7 @@ import { UnitsProvider } from "../../lib/units/UnitsContext";
 import { CalendarTemplatesProvider } from "../../lib/calendarTemplates/CalendarTemplatesContext";
 import { StudentsProvider } from "../../lib/students/StudentsContext";
 import { useSubmissionsForAdmin } from "../../lib/hooks/useSubmissions";
+import { useUnreadMessages } from "../../lib/hooks/useUnreadMessages";
 import { Sidebar } from "../../components/layout/Sidebar";
 import { Topbar } from "../../components/layout/Topbar";
 import { LoadingScreen } from "../../components/auth/LoadingScreen";
@@ -26,6 +27,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     { reviewed: false },
     state.status === "authenticated" && state.user.role !== "student",
   );
+  const unreadMessages = useUnreadMessages(state.status === "authenticated" && state.user.role !== "student");
 
   useEffect(() => {
     if (state.status === "unauthenticated") router.replace("/");
@@ -46,6 +48,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         canSwitchView
         onLogout={handleLogout}
         unreviewedCount={submissions?.length ?? 0}
+        unreadMessages={unreadMessages}
         showUsersNav={state.user.role === "administrator"}
         showOperationsNav={state.user.role === "root"}
         isTeacher={state.user.role === "teacher"}

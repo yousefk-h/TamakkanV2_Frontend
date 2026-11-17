@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDraggable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import type { LessonDraftExerciseSuggestion, LessonDraftJob, LessonExercise } from "@/lib/api/types";
 import { topicsApi, ApiError } from "@/lib/api/client";
@@ -41,7 +41,7 @@ function BlockDragHandle({ index, label }: { index: number; label: string }) {
     className={`min-h-11 min-w-11 cursor-grab touch-none rounded-lg border border-line bg-bg text-lg text-muted active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`} title={label}>⠿</button>;
 }
 
-export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty, interactiveVideo = false, compact = false, initialExpandedIndex = null }: {
+export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExercisesChange, hasVideo, hasVocabulary, canAiDraft, generatingIndex, suggestions, onGenerate, onAcceptSuggestions, onDiscardSuggestions, lessonDraftJob, draftExercises, onGenerateLessonDraft, lessonDraftStarting, lessonDraftError, onAcceptDraftExercise, onRejectDraftExercise, onRegenerateDraftExercise, draftExerciseActionIndex, exercisesDirty, interactiveVideo = false, compact = false, initialExpandedIndex = null, hideOwnList = false, openRequest = null, onOpenRequestHandled }: {
   topicId: string | null;
   exercises: LessonExercise[];
   onExercisesChange: (exercises: LessonExercise[]) => void;
@@ -71,6 +71,15 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
    * library is available only after choosing to add or edit a question. */
   compact?: boolean;
   initialExpandedIndex?: number | null;
+  /** When Video Studio owns the visible checkpoint/activity list, it still
+   * mounts this component "headless" purely to reuse its question-editor
+   * modal (add/edit) rather than rebuilding that form - hides this
+   * component's own list/header, but the modal still opens as normal. */
+  hideOwnList?: boolean;
+  /** An external request (from Video Studio) to open the question editor for
+   * a specific exercise index, or "add" for a new one. Fires once per change. */
+  openRequest?: number | "add" | null;
+  onOpenRequestHandled?: () => void;
 }) {
   const { t, locale } = useI18n();
   const exercises = rawExercises.map(withExerciseDefaults);
@@ -81,6 +90,17 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  useEffect(() => {
+    if (openRequest === null || openRequest === undefined) return;
+    // An explicit external request to open the editor, not a derived value -
+    // genuinely synchronizing from the parent, same pattern as the existing
+    // `checkpoints`/`uploadedVideoUrl` reset effects in this builder.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQuestionEditorIndex(openRequest);
+    onOpenRequestHandled?.();
+    // Fires only when the parent issues a new request, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest]);
   const update = (index: number, changes: Partial<LessonExercise>) =>
     onExercisesChange(exercises.map((exercise, i) => i === index ? { ...exercise, ...changes } : exercise));
   const uploadMedia = async (index: number, file: File, kind: "image" | "audio") => {
@@ -125,7 +145,8 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
 
   const availableSkillKinds = interactiveVideo ? SKILL_KINDS.filter(kind => kind !== "speaking") : SKILL_KINDS;
 
-  if (compact && interactiveVideo) return <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
+  if (compact && interactiveVideo) return <>
+    {!hideOwnList && <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><p className="text-xs font-extrabold uppercase tracking-[0.14em] text-brand-blue">Questions</p><h3 className="mt-1 text-lg font-extrabold text-ink">Your video question plan</h3><p className="mt-1 text-sm text-muted">Edit a question only when you need to. Its pause point is managed on the timeline below.</p></div>
       <button type="button" onClick={() => setQuestionEditorIndex("add")} className="min-h-11 rounded-lg bg-brand-blue px-4 text-sm font-bold text-white">+ Add question</button>
@@ -137,6 +158,7 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
         <button type="button" onClick={() => setQuestionEditorIndex(index)} className="min-h-10 shrink-0 rounded-lg border border-line px-3 text-sm font-bold text-brand-blue">Edit</button>
       </li>)}
     </ol>}
+    </section>}
     {questionEditorIndex !== null && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4">
       <div className="relative max-h-[calc(100dvh-32px)] w-full max-w-[1240px] overflow-y-auto rounded-2xl bg-bg p-4 shadow-2xl sm:p-6">
         <button type="button" onClick={() => setQuestionEditorIndex(null)} className="absolute right-4 top-4 z-10 grid size-11 place-items-center rounded-xl border-2 border-brand-coral bg-brand-coral-pale text-2xl font-bold leading-none text-brand-coral" aria-label="Close question editor">×</button>
@@ -144,7 +166,7 @@ export function Step4ExercisesSchedule({ topicId, exercises: rawExercises, onExe
         <div className="mt-5"><Step4ExercisesSchedule key={questionEditorIndex === "add" ? "add" : `edit-${questionEditorIndex}`} topicId={topicId} exercises={exercises} onExercisesChange={onExercisesChange} hasVideo={hasVideo} hasVocabulary={hasVocabulary} canAiDraft={canAiDraft} generatingIndex={generatingIndex} suggestions={suggestions} onGenerate={onGenerate} onAcceptSuggestions={onAcceptSuggestions} onDiscardSuggestions={onDiscardSuggestions} lessonDraftJob={lessonDraftJob} draftExercises={draftExercises} onGenerateLessonDraft={onGenerateLessonDraft} lessonDraftStarting={lessonDraftStarting} lessonDraftError={lessonDraftError} onAcceptDraftExercise={onAcceptDraftExercise} onRejectDraftExercise={onRejectDraftExercise} onRegenerateDraftExercise={onRegenerateDraftExercise} draftExerciseActionIndex={draftExerciseActionIndex} exercisesDirty={exercisesDirty} interactiveVideo initialExpandedIndex={questionEditorIndex === "add" ? null : questionEditorIndex} /></div>
       </div>
     </div>}
-  </section>;
+  </>;
 
   return <section className="mx-auto max-w-[1200px] space-y-7">
     {!interactiveVideo && <div className="rounded-2xl border border-brand-blue/30 bg-brand-primary-pale/30 p-4">

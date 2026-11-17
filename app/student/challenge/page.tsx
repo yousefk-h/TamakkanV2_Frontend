@@ -9,7 +9,8 @@ import { useMyClasses } from "@/lib/hooks/useClasses";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { LEVEL_ORDER } from "@/lib/topics/helpers";
 import { EndOfWeekTaskModal } from "@/components/student/challenge/EndOfWeekTaskModal";
-import { Dialog, DialogCloseButton } from "@/components/ui/Dialog";
+import { LearningPath, type PathNode } from "@/components/student/journey/LearningPath";
+import { Dialog } from "@/components/ui/Dialog";
 import { type MessageKey, useI18n } from "@/lib/i18n/LocaleProvider";
 import { asUtcIso, formatDateTime } from "@/lib/format";
 import type { LessonDayState, LiveClassPublic, TopicListItem } from "@/lib/api/types";
@@ -130,9 +131,69 @@ export default function StudentChallengePage() {
         });
   const todaysEndOfWeekTask = restDays.includes(currentDay);
   const pendingCount = calendar?.pending_count ?? 0;
-  const [dayPickerOpen, setDayPickerOpen] = useState<number | null>(null);
-  const todaysCourses = days.find(d => d.day === currentDay && !restDays.includes(currentDay))?.courses ?? [];
-  const todaysTopic = todaysCourses.find(c => c.state === "current")?.topic ?? todaysCourses[0]?.topic;
+  const [lockedExplainer, setLockedExplainer] = useState<PathNode | null>(null);
+
+  // `program_name` is null whenever no real calendar actually resolved for this student (see the heading below) -
+  // every other number on this page (percent ring, remaining-days count, milestones) must agree with that same
+  // gate, or the page can show "no plan" next to a populated percentage/milestone set, exactly the
+  // self-contradiction this page was reported to still have after an earlier fix only touched the heading text.
+  const hasRealPlan = !!(progress?.program_start_date && progress?.program_name) && !progressError;
+
+  // Week-by-week navigation: Week N covers days (N-1)*7+1..N*7 of the program's own real duration (never a fixed
+  // 30 - `challengeTotal` is `challenge_total_days` from the real resolved template, whatever its actual length
+  // is), so this works unchanged for a program shorter or longer than 30 days. Starts on the week containing
+  // today's real day.
+  const totalWeeks = Math.max(1, Math.ceil(challengeTotal / 7));
+  const [weekIndex, setWeekIndex] = useState(() => Math.min(totalWeeks - 1, Math.max(0, Math.floor((Math.max(1, currentDay) - 1) / 7))));
+  // `days` is already cheaply recomputed per render (not itself memoized) - chunking it is just as cheap, so this
+  // intentionally isn't wrapped in its own useMemo (which would need `days` as a dependency and gain nothing).
+  const weeks: (typeof days)[] = [];
+  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+  const clampedWeekIndex = Math.min(weekIndex, Math.max(0, weeks.length - 1));
+  const visibleDays = weeks[clampedWeekIndex] ?? [];
+  const weekFirstDay = clampedWeekIndex * 7 + 1;
+  const weekLastDay = Math.min(challengeTotal, weekFirstDay + 6);
+
+  // COMPLETION-policy programs have no calendar date/duration at all - `challenge_total_days` is a real lesson-node
+  // count, never a calendar length - so the map here is built straight from the real template order
+  // (`calendar.lesson_days`, already flattened per lesson, never per calendar day) instead of the date-driven
+  // `days`/`weeks` construction above, which stays exactly as it was for SCHEDULE-policy programs.
+  const isCompletion = (progress?.unlock_policy ?? calendar?.unlock_policy) === "completion";
+  const completionNodes: PathNode[] = (calendar?.lesson_days ?? []).flatMap(slot =>
+    slot.topics
+      .map((ts): PathNode | null => {
+        const topic = topicsById.get(ts.topic_id);
+        return topic ? { id: topic.id, title: topic.title, state: ts.state, kind: "lesson", href: `/student/lessons/${topic.id}` } : null;
+      })
+      .filter((node): node is PathNode => node !== null)
+  );
+  const scheduleNodes: PathNode[] = visibleDays.flatMap((d): PathNode[] => {
+    if (restDays.includes(d.day)) {
+      const endOfWeekStatus: EndOfWeekStatus = endOfWeekSubmissions[d.day] ? "submitted" : d.state === "locked" ? "locked" : d.state === "current" ? "current" : "missed";
+      const nodeState: LessonDayState = endOfWeekStatus === "submitted" ? "done" : endOfWeekStatus === "missed" ? "missed" : endOfWeekStatus === "locked" ? "locked" : "current";
+      return [{ id: `checkin-${d.day}`, title: t("challenge.endOfWeekTaskTitle"), state: nodeState, kind: "checkin", day: d.day, groupLabel: t("challenge.dayLabel", { day: d.day }) }];
+    }
+    const dayClasses = classesByDay.get(d.day) ?? [];
+    const liveClassTitle = dayClasses.length > 0 ? dayClasses.map(c => `${c.title} (${formatDateTime(c.scheduled_at)})`).join(", ") : undefined;
+    // A locked future day's `courses` is only a *preview* of whatever is currently backlogged (see the backend's
+    // own `_build_schedule` docstring - "not a commitment about what will actually land there"), so the exact
+    // same not-yet-completed topic can legitimately repeat across many future days. Showing that one real topic's
+    // title as if it were each day's own distinct lesson would be misleading (and gives every locked node the same
+    // React key) - a locked node gets a generic placeholder label and a day-qualified key instead; only a real
+    // current/done/missed node shows its real lesson title.
+    return d.courses.map((c, index): PathNode => ({
+      id: `${c.topic.id}-day${d.day}`, title: c.state === "locked" ? t("challenge.lockedLessonPlaceholder") : c.topic.title, state: c.state, kind: "lesson",
+      href: `/student/lessons/${c.topic.id}`,
+      liveClassTitle: index === 0 ? liveClassTitle : undefined,
+      groupLabel: index === 0 ? t("challenge.dayLabel", { day: d.day }) : undefined,
+    }));
+  });
+  const pathNodes = isCompletion ? completionNodes : scheduleNodes;
+  // The "Continue" shortcut always resumes the actual current lesson node, never a guessed
+  // first-of-level topic - falls back to the student's first entitled topic only when nothing
+  // in the currently-visible path is "current" (e.g. a schedule-mode program showing a past week).
+  const continueNode = pathNodes.find(n => n.kind !== "checkin" && n.state === "current");
+  const continueHref = continueNode?.href ?? (topics[0] ? `/student/lessons/${topics[0].id}` : null);
 
   return (
     <main className="mx-auto max-w-[1510px] px-4 py-7 md:px-7.5">
@@ -142,23 +203,46 @@ export default function StudentChallengePage() {
             {progress?.program_name ? t("studentHome.journeyBadgeFor", { program: progress.program_name }) : t("studentHome.journeyBadgeGeneric")}
           </span>
           <h2 className="my-2 text-[28px] tracking-tight md:text-[32px]">
-            {progressLoading ? t("common.loading") : progressError ? t("analytics.planError") : !progress?.program_start_date ? (progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsHeading") : t("analytics.noPlan")) : currentDay === 0 ? t("analytics.notStarted") : t("studentHome.challengeDay", { day: currentDay })}{" "}
-            {currentDay > 0 && <em className="text-base font-medium not-italic opacity-80">{t("studentHome.challengeDayOf", { total: challengeTotal })}</em>}
+            {progressLoading ? t("common.loading") : progressError ? t("analytics.planError") :
+              /* `program_name` is null whenever no real calendar actually resolved for this student - including a
+              stale legacy `program_start_date` left pointing at a Program/level that no longer has an active
+              template (see `ProgressService._resolve_program_context`/`_resolve_template`). Checking it here,
+              not just `program_start_date`, is what keeps this heading from ever claiming a day count while the
+              lesson list below is genuinely empty. */
+              (!progress?.program_start_date || !progress?.program_name)
+                ? (progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsHeading") : t("analytics.noPlan"))
+                : currentDay === 0
+                ? t("analytics.notStarted")
+                : isCompletion
+                ? t("challenge.lessonProgress", { day: currentDay })
+                : t("studentHome.challengeDay", { day: currentDay })}{" "}
+            {currentDay > 0 && (
+              <em className="text-base font-medium not-italic opacity-80">
+                {isCompletion ? t("challenge.lessonProgressOf", { total: challengeTotal }) : t("studentHome.challengeDayOf", { total: challengeTotal })}
+              </em>
+            )}
           </h2>
           <p className="m-0 text-sm opacity-90">{progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsNotice") : t("studentHome.challengeMomentum")}</p>
-          {progress && !progressError && <div className="mt-5 flex flex-wrap gap-4 text-sm">
+          {/* Gated on the exact same `hasRealPlan` the heading above uses - these numbers must never show a
+          populated percentage/streak/remaining-days next to a "no plan assigned" heading, which was the reported
+          self-contradiction left over after an earlier fix that only touched the heading text. */}
+          {hasRealPlan && <div className="mt-5 flex flex-wrap gap-4 text-sm">
             <b>{t("studentHome.challengeStreak", { count: progress?.current_streak ?? 0 })}</b>
-            <span className="opacity-75">{t("studentHome.challengeRemaining", { count: Math.max(0, challengeTotal - currentDay) })}</span>
+            <span className="opacity-75">
+              {isCompletion
+                ? t("challenge.lessonsRemaining", { count: Math.max(0, challengeTotal - currentDay) })
+                : t("studentHome.challengeRemaining", { count: Math.max(0, challengeTotal - currentDay) })}
+            </span>
           </div>}
           {progressError && <button onClick={refetchProgress} className="mt-3 min-h-11 underline">{t("mobile.retry")}</button>}
         </div>
         <div
           className="relative mx-auto grid size-27 place-items-center rounded-full"
-          style={{ background: `conic-gradient(white 0 ${challengePercent}%, rgba(255,255,255,.25) ${challengePercent}%)` }}
+          style={{ background: `conic-gradient(white 0 ${hasRealPlan ? challengePercent : 0}%, rgba(255,255,255,.25) ${hasRealPlan ? challengePercent : 0}%)` }}
         >
           <div className="absolute inset-[13px] rounded-full bg-brand-ring" />
           <div className="relative z-10 text-center">
-            <strong className="block text-xl">{progress?.program_start_date && !progressError ? `${challengePercent}%` : "—"}</strong>
+            <strong className="block text-xl">{hasRealPlan ? `${challengePercent}%` : "—"}</strong>
             <span className="block max-w-24 text-[10px] leading-tight opacity-80">{t("studentHome.challengeComplete")}</span>
           </div>
         </div>
@@ -186,11 +270,26 @@ export default function StudentChallengePage() {
         </section>
       )}
 
-      <section className="mt-8">
-        <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("challenge.dayByDay")}</span>
-        <h2 className="my-1 text-2xl tracking-tight">{t("challenge.calendarTitle")}</h2>
-        <p className="m-0 text-xs text-muted">{t("challenge.calendarHint")}</p>
+      <section className="mt-8 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("challenge.dayByDay")}</span>
+          <h2 className="my-1 text-2xl tracking-tight">{t("challenge.calendarTitle")}</h2>
+          <p className="m-0 text-xs text-muted">{isCompletion ? t("challenge.calendarHintCompletion") : t("challenge.calendarHint")}</p>
+        </div>
+        {/* Explicit week-by-week navigation, independent of the program's real length (`totalWeeks` derives from
+        `challengeTotal`, never a hardcoded 30) - browsing never bypasses lock state, it only changes which 7
+        days are rendered below; every cell keeps the exact same locked/current/done/missed logic either way.
+        COMPLETION-policy programs have no calendar date at all, so there is no "week" to page through - every
+        real lesson node renders in one continuous path instead. */}
+        {!isCompletion && weeks.length > 1 && <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setWeekIndex(i => Math.max(0, i - 1))} disabled={clampedWeekIndex === 0}
+            aria-label={t("challenge.previousWeek")} className="grid size-10 min-h-10 place-items-center rounded-full border border-line bg-card text-sm font-bold disabled:opacity-40">‹</button>
+          <span className="min-w-28 text-center text-sm font-bold">{t("challenge.weekOf", { week: clampedWeekIndex + 1, total: weeks.length })}</span>
+          <button type="button" onClick={() => setWeekIndex(i => Math.min(weeks.length - 1, i + 1))} disabled={clampedWeekIndex >= weeks.length - 1}
+            aria-label={t("challenge.nextWeek")} className="grid size-10 min-h-10 place-items-center rounded-full border border-line bg-card text-sm font-bold disabled:opacity-40">›</button>
+        </div>}
       </section>
+      {!isCompletion && weeks.length > 1 && <p className="mt-1 text-xs text-muted">{t("challenge.weekRange", { from: weekFirstDay, to: weekLastDay })}</p>}
 
       {pendingCount > 0 && (
         <section className="mt-4 flex items-center gap-3 rounded-2xl border border-brand-coral/30 bg-brand-coral/10 p-4">
@@ -207,157 +306,13 @@ export default function StudentChallengePage() {
         <p className="mt-4 text-sm text-muted">{t("challenge.noTemplateYet")}</p>
       ) : (
         <div className="mt-4 rounded-2xl border border-line bg-card p-5 shadow-card">
-          <div className="grid grid-cols-4 gap-2.5 min-[360px]:grid-cols-5 sm:grid-cols-6 md:grid-cols-10">
-            {days.map(d => {
-              const isEndOfWeek = restDays.includes(d.day);
-              // End-of-week cells track their own check-in status, distinct
-              // from the lesson day-state computed alongside: a check-in
-              // day that's come and gone with nothing submitted is
-              // "missed", not just "done" (reads identical to a completed
-              // lesson) or "🎥" (reads identical to one that hasn't
-              // unlocked yet). Those three used to be visually
-              // indistinguishable - this is the actual gap the platform
-              // plan calls out, preserved here.
-              const endOfWeekStatus: EndOfWeekStatus | null = isEndOfWeek
-                ? endOfWeekSubmissions[d.day]
-                  ? "submitted"
-                  : d.state === "locked"
-                  ? "locked"
-                  : d.state === "current"
-                  ? "current"
-                  : "missed"
-                : null;
-              const endOfWeekStatusLabel = endOfWeekStatus
-                ? {
-                    submitted: t("challenge.statusSubmitted"),
-                    current: t("challenge.statusCurrent"),
-                    locked: t("challenge.statusLocked"),
-                    missed: t("challenge.statusMissed"),
-                  }[endOfWeekStatus]
-                : "";
-              const courseTitles = d.courses.map(c => c.topic.title).join(", ");
-              const dayClasses = classesByDay.get(d.day) ?? [];
-              const hasLiveClass = dayClasses.length > 0;
-              const liveClassTitles = dayClasses.map(c => `${c.title} (${formatDateTime(c.scheduled_at)})`).join(", ");
-              const label =
-                (isEndOfWeek
-                  ? t("challenge.endOfWeekAriaLabel", { day: d.day, status: endOfWeekStatusLabel })
-                  : t("challenge.lessonAriaLabel", { day: d.day, title: courseTitles }) +
-                    (d.state === "done"
-                      ? t("challenge.completedSuffix")
-                      : d.state === "missed"
-                      ? t("challenge.missedSuffix")
-                      : d.state === "locked"
-                      ? t("challenge.lockedSuffix")
-                      : "")) + (hasLiveClass ? t("challenge.liveClassAriaSuffix", { title: liveClassTitles }) : "");
-
-              // Gradients instead of flat fills, plus a lift-and-glow on
-              // hover for every interactive (non-disabled) cell - the whole
-              // point of this pass being "more vibrant", not just correct.
-              const colorClasses = isEndOfWeek
-                ? endOfWeekStatus === "submitted"
-                  ? "bg-gradient-to-br from-[#fff0de] to-[#ffe1bb] text-[#b8661f]"
-                  : endOfWeekStatus === "current"
-                  ? "bg-gradient-to-br from-[#ff9a4d] to-[#ff7a1f] text-white shadow-[0_6px_16px_rgba(255,139,55,.4)]"
-                  : endOfWeekStatus === "missed"
-                  ? "bg-gradient-to-br from-brand-coral/15 to-brand-coral/5 text-brand-coral"
-                  : "bg-gradient-to-br from-[#fff4e9] to-[#ffe9d2] text-[#c9772a]"
-                : d.state === "done"
-                ? "bg-gradient-to-br from-[#e8faf4] to-[#c9f3e2] text-[#0f9e78]"
-                : d.state === "current"
-                ? "bg-gradient-to-br from-brand-blue to-brand-selected text-white shadow-[0_8px_18px_rgb(var(--brand-shadow-rgb)/.45)]"
-                : d.state === "missed"
-                ? "bg-gradient-to-br from-brand-coral/15 to-brand-coral/5 text-brand-coral"
-                : "bg-bg text-muted";
-              const interactive = !(d.state === "locked" && !isEndOfWeek) && endOfWeekStatus !== "locked";
-              const cellClasses = `relative grid aspect-square place-items-center gap-0.5 rounded-xl text-center transition-all duration-150 ${colorClasses} ${
-                interactive ? "hover:-translate-y-0.5 hover:shadow-lg" : ""
-              }`;
-              // A small glowing dot, not another emoji - the day cell
-              // already carries up to two icon badges (missed-warning,
-              // multi-course count); a plain colored dot reads as "there's
-              // something else here" without competing with those for
-              // attention or meaning.
-              const liveClassBadge = hasLiveClass && (
-                <i
-                  aria-hidden="true"
-                  title={liveClassTitles}
-                  className="absolute bottom-1 left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-accent-indigo shadow-[0_0_0_2px_rgba(255,255,255,.6)] not-italic"
-                />
-              );
-
-              if (isEndOfWeek) {
-                const locked = endOfWeekStatus === "locked";
-                return (
-                  <button
-                    key={d.day}
-                    type="button"
-                    title={endOfWeekStatus === "missed" ? t("challenge.endOfWeekTitleMissed") : t("challenge.endOfWeekTitle")}
-                    aria-label={label}
-                    disabled={locked}
-                    onClick={() => setEndOfWeekOpen(d.day)}
-                    className={`${cellClasses} ${locked ? "cursor-not-allowed opacity-55" : ""}`}
-                  >
-                    <em className="absolute right-1 top-0.5 text-[11px] not-italic">{endOfWeekStatus === "missed" ? "⚠" : "🎥"}</em>
-                    <b className="text-xs font-extrabold">{d.day}</b>
-                    <span className="text-xs">{endOfWeekStatus === "submitted" ? "✓" : endOfWeekStatus === "missed" ? "!" : "🎥"}</span>
-                    {liveClassBadge}
-                  </button>
-                );
-              }
-
-              if (d.state === "locked" || d.courses.length === 0) {
-                return (
-                  <div key={d.day} title={courseTitles} aria-label={label} className={`${cellClasses} cursor-not-allowed opacity-55`}>
-                    <b className="text-xs font-extrabold">{d.day}</b>
-                    <span className="text-xs">⛓</span>
-                    {liveClassBadge}
-                  </div>
-                );
-              }
-
-              const countBadge = d.courses.length > 1 && (
-                <em className="absolute left-1 top-0.5 grid size-3.5 place-items-center rounded-full bg-black/20 text-[9px] not-italic">
-                  {d.courses.length}
-                </em>
-              );
-
-              if (d.courses.length === 1) {
-                const only = d.courses[0];
-                return (
-                  <Link key={d.day} href={`/student/lessons/${only.topic.id}`} title={only.topic.title} aria-label={label} className={cellClasses}>
-                    {d.state === "missed" && <em className="absolute right-1 top-0.5 text-[11px] not-italic">⚠</em>}
-                    <b className="text-xs font-extrabold">{d.day}</b>
-                    <span className="text-xs">{d.state === "done" ? "✓" : d.state === "missed" ? "!" : "●"}</span>
-                    {liveClassBadge}
-                  </Link>
-                );
-              }
-
-              return (
-                <button
-                  key={d.day}
-                  type="button"
-                  title={courseTitles}
-                  aria-label={label}
-                  onClick={() => setDayPickerOpen(d.day)}
-                  className={cellClasses}
-                >
-                  {d.state === "missed" && <em className="absolute right-1 top-0.5 text-[11px] not-italic">⚠</em>}
-                  {countBadge}
-                  <b className="text-xs font-extrabold">{d.day}</b>
-                  <span className="text-xs">{d.state === "done" ? "✓" : d.state === "missed" ? "!" : "●"}</span>
-                  {liveClassBadge}
-                </button>
-              );
-            })}
-          </div>
+          <LearningPath nodes={pathNodes} onLockedClick={setLockedExplainer} onCheckinClick={node => setEndOfWeekOpen(node.day ?? null)} />
           <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-line pt-3.5 text-[11px] text-muted">
             <span className="flex items-center gap-1"><i className="not-italic">✓</i> {t("challenge.legendDone")}</span>
             <span className="flex items-center gap-1"><i className="not-italic">●</i> {t("challenge.legendCurrent")}</span>
-            <span className="flex items-center gap-1"><i className="not-italic">!</i> {t("challenge.legendMissed")}</span>
-            <span className="flex items-center gap-1"><i className="not-italic">⛓</i> {t("challenge.legendLocked")}</span>
-            <span className="flex items-center gap-1"><i className="not-italic">🎥</i> {t("challenge.legendCheckin")}</span>
+            {!isCompletion && <span className="flex items-center gap-1"><i className="not-italic">!</i> {t("challenge.legendMissed")}</span>}
+            <span className="flex items-center gap-1"><i className="not-italic">🔒</i> {t("challenge.legendLocked")}</span>
+            {!isCompletion && <span className="flex items-center gap-1"><i className="not-italic">🎥</i> {t("challenge.legendCheckin")}</span>}
             <span className="flex items-center gap-1">
               <i aria-hidden="true" className="size-1.5 rounded-full bg-accent-indigo not-italic" /> {t("challenge.legendLiveClass")}
             </span>
@@ -365,101 +320,52 @@ export default function StudentChallengePage() {
         </div>
       )}
 
-      {dayPickerOpen !== null && (
+      {lockedExplainer && (
         <Dialog
-          ariaLabel={t("challenge.pickACourse")}
-          onClose={() => setDayPickerOpen(null)}
+          ariaLabel={t("challenge.lockedExplainerTitle")}
+          onClose={() => setLockedExplainer(null)}
           dismissOnBackdropClick
-          className="w-[min(420px,92vw)] rounded-2xl border-0 bg-card p-0 shadow-[0_20px_60px_rgba(0,0,0,.3)] backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+          className="w-[min(380px,92vw)] rounded-2xl border-0 bg-card p-5 shadow-[0_20px_60px_rgba(0,0,0,.3)] backdrop:bg-black/50 backdrop:backdrop-blur-sm"
         >
-            <div className="relative bg-gradient-to-br from-brand-blue to-brand-selected px-5 py-4 pe-16 text-white">
-              <DialogCloseButton className="absolute end-2 top-2 text-white" />
-              <span className="text-[11px] font-bold tracking-wide opacity-80">{t("challenge.dayByDay")}</span>
-              <h3 className="mt-0.5 text-lg font-extrabold">{t("challenge.dayNCourses", { day: dayPickerOpen })}</h3>
-            </div>
-            <div className="p-4">
-              <ul className="grid gap-2">
-                {(days.find(d => d.day === dayPickerOpen)?.courses ?? []).map(c => {
-                  const stateStyle =
-                    c.state === "done"
-                      ? { bg: "bg-gradient-to-br from-[#e8faf4] to-[#c9f3e2]", ring: "ring-[#0f9e78]/20", icon: "✓", iconBg: "bg-[#0f9e78] text-white" }
-                      : c.state === "missed"
-                      ? { bg: "bg-gradient-to-br from-brand-coral/15 to-brand-coral/5", ring: "ring-brand-coral/20", icon: "!", iconBg: "bg-brand-coral text-white" }
-                      : c.state === "current"
-                      ? { bg: "bg-gradient-to-br from-brand-primary-pale to-white", ring: "ring-brand-blue/25", icon: "→", iconBg: "bg-brand-blue text-white" }
-                      : { bg: "bg-bg", ring: "ring-line", icon: "⛓", iconBg: "bg-line text-muted" };
-                  return (
-                    <li key={c.topic.id}>
-                      {c.state === "locked" ? (
-                        <span className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted opacity-70 ring-1 ${stateStyle.bg} ${stateStyle.ring}`}>
-                          <em className={`grid size-7 flex-none place-items-center rounded-full text-xs not-italic ${stateStyle.iconBg}`}>{stateStyle.icon}</em>
-                          {c.topic.title}
-                        </span>
-                      ) : (
-                        <Link
-                          href={`/student/lessons/${c.topic.id}`}
-                          className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold text-ink ring-1 transition-all hover:-translate-y-0.5 hover:shadow-md ${stateStyle.bg} ${stateStyle.ring}`}
-                        >
-                          <em className={`grid size-7 flex-none place-items-center rounded-full text-xs not-italic ${stateStyle.iconBg}`}>{stateStyle.icon}</em>
-                          {c.topic.title}
-                        </Link>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-
-              {(classesByDay.get(dayPickerOpen) ?? []).length > 0 && (
-                <div className="mt-3 grid gap-2 border-t border-line pt-3">
-                  <span className="text-[11px] font-extrabold tracking-wide text-accent-indigo">{t("challenge.liveClassesHeading")}</span>
-                  {(classesByDay.get(dayPickerOpen) ?? []).map(c => (
-                    <a
-                      key={c.id}
-                      href={c.meet_link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 rounded-xl bg-gradient-to-br from-accent-indigo/10 to-accent-indigo/5 px-3 py-2.5 text-sm font-bold text-ink ring-1 ring-accent-indigo/25 transition-all hover:-translate-y-0.5 hover:shadow-md"
-                    >
-                      <em className="grid size-7 flex-none place-items-center rounded-full bg-accent-indigo text-xs not-italic text-white">🎦</em>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{c.title}</span>
-                        <span className="block text-xs font-normal text-muted">{formatDateTime(c.scheduled_at)}</span>
-                      </span>
-                      <span className="flex-none text-xs font-extrabold text-accent-indigo">{t("challenge.joinClass")} →</span>
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
+          <h3 className="text-lg font-extrabold">{t("challenge.lockedExplainerTitle")}</h3>
+          <p className="mt-1 text-sm font-bold text-ink">{lockedExplainer.title}</p>
+          <p className="mt-2 text-sm text-muted">{isCompletion ? t("challenge.lockedExplainerCompletion") : t("challenge.lockedExplainerSchedule")}</p>
+          <button type="button" onClick={() => setLockedExplainer(null)} className="mt-4 min-h-11 rounded-xl bg-brand-blue px-4 text-sm font-bold text-white">
+            {t("challenge.close")}
+          </button>
         </Dialog>
       )}
 
-      <section className="mt-8">
-        <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("challenge.rewards")}</span>
-        <h2 className="my-1 text-2xl tracking-tight">{t("challenge.milestones")}</h2>
-      </section>
-      <div className="mt-4 grid grid-cols-2 gap-3.5 sm:grid-cols-3">
-        {(progress?.milestones ?? CHALLENGE_MILESTONE_DAYS.map(day => ({ day, reached: false }))).map(m => (
-          <article
-            key={m.day}
-            className={`rounded-2xl border border-line bg-card p-4 text-center shadow-card ${m.reached ? "" : "opacity-45 grayscale"}`}
-          >
-            <span className="mb-2 block text-2xl">{MILESTONE_ICON[m.day]}</span>
-            <b className="block text-sm">{t("challenge.milestoneDay", { day: m.day, reward: t(MILESTONE_REWARD_KEY[m.day]) })}</b>
-            <p className="m-0 mt-1 text-xs leading-relaxed text-muted">
-              {m.reached ? t(MILESTONE_NOTE_KEY[m.day]) : t("challenge.milestoneLocked", { day: m.day })}
-            </p>
-          </article>
-        ))}
-      </div>
+      {/* Milestones are a SCHEDULE-only, calendar-day concept (days 10/20/30) - a COMPLETION-policy program's
+      `challenge_day` is a lesson-node count, not a date, so these thresholds would be a meaningless coincidence
+      (the backend already sends an empty `milestones` array for that policy; this just hides the section too). */}
+      {!isCompletion && (
+        <>
+          <section className="mt-8">
+            <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("challenge.rewards")}</span>
+            <h2 className="my-1 text-2xl tracking-tight">{t("challenge.milestones")}</h2>
+          </section>
+          <div className="mt-4 grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+            {(hasRealPlan ? progress?.milestones ?? [] : CHALLENGE_MILESTONE_DAYS.map(day => ({ day, reached: false }))).map(m => (
+              <article
+                key={m.day}
+                className={`rounded-2xl border border-line bg-card p-4 text-center shadow-card ${m.reached ? "" : "opacity-45 grayscale"}`}
+              >
+                <span className="mb-2 block text-2xl">{MILESTONE_ICON[m.day]}</span>
+                <b className="block text-sm">{t("challenge.milestoneDay", { day: m.day, reward: t(MILESTONE_REWARD_KEY[m.day]) })}</b>
+                <p className="m-0 mt-1 text-xs leading-relaxed text-muted">
+                  {m.reached ? t(MILESTONE_NOTE_KEY[m.day]) : t("challenge.milestoneLocked", { day: m.day })}
+                </p>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
 
-      {(todaysTopic ?? topics[0]) && (
+      {hasRealPlan && continueHref && (
         <div className="mt-5">
-          <Link
-            href={`/student/lessons/${(todaysTopic ?? topics[0]).id}`}
-            className="inline-flex items-center gap-2 rounded-[10px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white shadow-[0_7px_17px_rgb(var(--brand-shadow-rgb)/.28)]"
-          >
-            {t("challenge.continueDay", { day: currentDay })} <span>→</span>
+          <Link href={continueHref} className="inline-flex items-center gap-2 rounded-[10px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white shadow-[0_7px_17px_rgb(var(--brand-shadow-rgb)/.28)]">
+            {isCompletion ? t("studentHome.startLesson") : t("challenge.continueDay", { day: currentDay })} <span>→</span>
           </Link>
         </div>
       )}

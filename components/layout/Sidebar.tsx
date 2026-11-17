@@ -86,8 +86,10 @@ function isActive(pathname: string, href: string) {
   return href === "/student" || href === "/admin" ? pathname === href : pathname.startsWith(href);
 }
 
-export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0, showUsersNav = true, showOperationsNav = false, isTeacher = false }: {
+export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0, unreadMessages = 0, showUsersNav = true, showOperationsNav = false, isTeacher = false }: {
   variant: "student" | "admin"; canSwitchView: boolean; onLogout: () => void; unreviewedCount?: number;
+  /** Total unread messages across every conversation this caller is in - see `useUnreadMessages`. */
+  unreadMessages?: number;
   /** The Center Admin Users page (Students + Teachers across the whole center) is Administrator-only - a
    * Teacher doesn't get this nav entry at all, per PROMPT-047 ("Teacher should NOT see Center Admin
    * teacher-management UI"). The backend enforces this too (`/teachers` is `require_administrator`-gated and
@@ -122,6 +124,7 @@ export function Sidebar({ variant, canSwitchView, onLogout, unreviewedCount = 0,
       <Icon name={item.icon} className="size-5 shrink-0" />
       <span className={compact ? "text-[11px] leading-tight" : "min-w-0 flex-1"}>{label(item.key)}</span>
       {!compact && item.key === "submissions" && unreviewedCount > 0 && <b className="rounded-full bg-white/15 px-2 text-xs">{unreviewedCount}</b>}
+      {!compact && item.key === "messages" && unreadMessages > 0 && <b className="rounded-full bg-white/15 px-2 text-xs">{unreadMessages}</b>}
     </Link>
   );
 

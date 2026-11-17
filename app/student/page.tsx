@@ -1,16 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StudentActivity } from "@/components/analytics/StudentActivity";
 import { Icon } from "@/components/ui/Icon";
 import { CourseCard } from "@/components/topics/CourseCard";
+import { LearningPath, type PathNode } from "@/components/student/journey/LearningPath";
 import { useTopicsContext } from "@/lib/topics/TopicsContext";
 import { LEVEL_ORDER, LEVEL_LABEL, LEVEL_EMOJI } from "@/lib/topics/helpers";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useMyClasses } from "@/lib/hooks/useClasses";
 import { useMySessions } from "@/lib/hooks/useSessions";
-import { useStudentProgress } from "@/lib/hooks/useProgress";
+import { useChallengeCalendar, useStudentProgress } from "@/lib/hooks/useProgress";
 import { asUtcIso, formatDateTime } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/LocaleProvider";
 
@@ -24,12 +25,18 @@ export default function StudentHomePage() {
     { step: "4", title: t("studentHome.howStep4Title"), desc: t("studentHome.howStep4Desc") },
   ];
   const { topics, topicsByLevel, loading, error: topicsError, refetch: refetchTopics } = useTopicsContext();
+  // `TopicsProvider` (mounted once per section in the layout) already fetches on its own first mount - calling
+  // `refetchTopics()` again here unconditionally meant every Home page mount fired a second, redundant request
+  // that raced the first (the first's in-flight promise gets cancelled via `useTopics`'s cleanup, not actually
+  // wasted bandwidth-wise, but a needless real HTTP round trip every single time, and a longer combined window
+  // where `loading` reads `true` - the "stuck Loading your lessons..." symptom gets easier to actually hit the
+  // slower/more loaded the backend is). Refetching on window focus (recovering data after the tab was
+  // backgrounded) is still legitimate and kept.
   useEffect(() => {
-    refetchTopics();
     window.addEventListener("focus", refetchTopics);
     return () => window.removeEventListener("focus", refetchTopics);
   }, [refetchTopics]);
-  const allTopics = topics ?? [];
+  const allTopics = useMemo(() => topics ?? [], [topics]);
   const currentTopic = allTopics.find(topic => topic.lesson_status === "current")
     ?? allTopics.find(topic => topic.lesson_status === "missed")
     ?? allTopics.find(topic => topic.lesson_status === "done");
@@ -43,6 +50,33 @@ export default function StudentHomePage() {
   const classesEnabled = state.status === "authenticated" && state.user.role === "student";
   const { sessions: reportSessions } = useMySessions(classesEnabled);
   const { progress, loading: progressLoading, error: progressError, refetch: refetchProgress } = useStudentProgress(classesEnabled);
+  const { calendar } = useChallengeCalendar();
+  // A small preview of the real learning path (previous/current/next real lesson nodes, never a calendar day) -
+  // same flattening the full Learning Journey page uses, works unchanged for either unlock policy since
+  // `calendar.lesson_days` is already per-lesson for a COMPLETION-policy program.
+  const topicsById = useMemo(() => new Map(allTopics.map(topic => [topic.id, topic])), [allTopics]);
+  const pathPreviewAll: PathNode[] = (calendar?.lesson_days ?? []).flatMap(slot =>
+    slot.topics
+      .map((ts): PathNode | null => {
+        const topic = topicsById.get(ts.topic_id);
+        if (!topic) return null;
+        // A SCHEDULE-policy locked future day only previews whatever is currently backlogged (see the matching
+        // comment in challenge/page.tsx) - the same not-yet-completed topic can legitimately repeat across many
+        // future days, so a locked node gets a generic placeholder title and a day-qualified key rather than
+        // repeating one real lesson's name as if every locked day were that same lesson.
+        return {
+          id: `${topic.id}-day${slot.day}`,
+          title: ts.state === "locked" ? t("challenge.lockedLessonPlaceholder") : topic.title,
+          state: ts.state, kind: "lesson", href: `/student/lessons/${topic.id}`,
+        };
+      })
+      .filter((node): node is PathNode => node !== null)
+  );
+  const pathPreviewCurrentIndex = pathPreviewAll.findIndex(node => node.state === "current");
+  // Previous + current + next, but near either end of the path, keep showing 3 nodes total rather than fewer.
+  const pathPreviewStart = pathPreviewCurrentIndex === -1 ? 0 : Math.max(0, Math.min(pathPreviewCurrentIndex - 1, pathPreviewAll.length - 3));
+  const pathPreview = pathPreviewAll.slice(pathPreviewStart, pathPreviewStart + 3);
+  const isCompletion = progress?.unlock_policy === "completion";
   const challengeDay = progress?.challenge_day ?? 0;
   const challengeTotal = progress?.challenge_total_days ?? 30;
   const challengePercent = lessonPercent;
@@ -66,14 +100,26 @@ export default function StudentHomePage() {
           </span>
           <h2 className="my-2 text-[28px] tracking-tight md:text-[32px]">
             {progressLoading ? t("common.loading") : progressError ? t("analytics.planError") : progress?.program_start_date
-              ? challengeDay > 0 ? t("studentHome.challengeDay", { day: challengeDay }) : t("analytics.notStarted")
+              ? challengeDay > 0
+                ? (isCompletion ? t("challenge.lessonProgress", { day: challengeDay }) : t("studentHome.challengeDay", { day: challengeDay }))
+                : t("analytics.notStarted")
               : progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsHeading") : t("analytics.noPlan")}{" "}
-            {challengeDay > 0 && <em className="text-base font-medium not-italic opacity-80">{t("studentHome.challengeDayOf", { total: challengeTotal })}</em>}
+            {challengeDay > 0 && (
+              <em className="text-base font-medium not-italic opacity-80">
+                {isCompletion ? t("challenge.lessonProgressOf", { total: challengeTotal }) : t("studentHome.challengeDayOf", { total: challengeTotal })}
+              </em>
+            )}
           </h2>
           <p className="m-0 text-sm opacity-90">{progress?.has_multiple_enrollments ? t("studentHome.multipleEnrollmentsNotice") : t("studentHome.challengeMomentum")}</p>
           {progress && !progressError && <div className="mt-5 flex flex-wrap gap-4 text-sm">
             <b>{t("studentHome.challengeStreak", { count: progress.current_streak })}</b>
-            {progress.program_start_date && <span className="opacity-75">{t("studentHome.challengeRemaining", { count: Math.max(0, challengeTotal - challengeDay) })}</span>}
+            {progress.program_start_date && (
+              <span className="opacity-75">
+                {isCompletion
+                  ? t("challenge.lessonsRemaining", { count: Math.max(0, challengeTotal - challengeDay) })
+                  : t("studentHome.challengeRemaining", { count: Math.max(0, challengeTotal - challengeDay) })}
+              </span>
+            )}
           </div>}
           {progressError && <button onClick={refetchProgress} className="mt-3 min-h-11 underline">{t("mobile.retry")}</button>}
         </div>
@@ -119,7 +165,7 @@ export default function StudentHomePage() {
                 <span aria-hidden="true">{LEVEL_EMOJI[level]}</span>
               )}
               <Link
-                href="/student/enrollments"
+                href={`/student/lessons/${currentTopic.id}`}
                 aria-label={t("studentHome.startLesson")}
                 className="absolute left-1/2 top-1/2 grid size-[50px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white/25 bg-white text-brand-blue"
               >
@@ -133,7 +179,7 @@ export default function StudentHomePage() {
               <h3 className="m-0 text-lg">{currentTopic.title}</h3>
 
               <Link
-                href="/student/enrollments"
+                href={`/student/lessons/${currentTopic.id}`}
                 className="mt-1 inline-flex w-fit items-center gap-2 rounded-[10px] bg-brand-blue px-4 py-2.5 text-sm font-bold text-white shadow-[0_7px_17px_rgb(var(--brand-shadow-rgb)/.28)]"
               >
                 <Icon name="play" className="size-4" /> {t("studentHome.startHere")}
@@ -187,6 +233,23 @@ export default function StudentHomePage() {
           </Link>
         </article>
       </div>
+
+      {pathPreview.length > 0 && (
+        <>
+          <section className="mt-8 flex items-center justify-between gap-4">
+            <div>
+              <span className="text-[13px] font-extrabold tracking-wide text-brand-blue">{t("studentHome.pathPreviewEyebrow")}</span>
+              <h2 className="my-1 text-2xl tracking-tight">{t("studentHome.pathPreviewTitle")}</h2>
+            </div>
+            <Link href="/student/challenge" className="whitespace-nowrap text-sm font-bold text-brand-blue">
+              {t("studentHome.viewChallenge")} →
+            </Link>
+          </section>
+          <div className="mt-4 rounded-2xl border border-line bg-card p-5 shadow-card">
+            <LearningPath nodes={pathPreview} compact />
+          </div>
+        </>
+      )}
 
       {level && (
         <>

@@ -107,6 +107,11 @@ export interface ProgramLevelDefinition {
   level_profile_id: string | null;
 }
 
+// SCHEDULE (default, every existing Program): lessons open by calendar date.
+// COMPLETION: a lesson opens only once the previous one is genuinely done -
+// never by elapsed time - and there is never a "missed" state.
+export type UnlockPolicy = "schedule" | "completion";
+
 export interface ProgramPublic extends BaseSchema {
   code: string;
   name: string;
@@ -117,6 +122,7 @@ export interface ProgramPublic extends BaseSchema {
   levels: ProgramLevelDefinition[];
   created_by_id: string;
   is_active: boolean;
+  unlock_policy: UnlockPolicy;
 }
 
 export interface ProgramWriteRequest {
@@ -127,6 +133,7 @@ export interface ProgramWriteRequest {
   base_levels: Level[];
   level_profile_ids?: string[];
   levels?: ProgramLevelDefinition[];
+  unlock_policy?: UnlockPolicy;
 }
 export type ProgramTopicStatus = "draft" | "published";
 
@@ -317,12 +324,21 @@ export interface StudentLearningJourney {
 
 export type AnnouncementScope = "my_students" | "cohort" | "program" | "center";
 
+export type MessageKind = "text" | "image" | "audio";
+
 export interface MessagePublic extends BaseSchema {
   conversation_id: string;
   sender_id: string;
   sender_role: Role;
   sender_name: string | null;
+  kind: MessageKind;
   body: string;
+  /** IMAGE/AUDIO only - a freshly signed delivery URL, minted per response
+   * (both storages are Cloudinary's `authenticated` delivery type) - never
+   * cached/reused past this one response. */
+  media_url: string | null;
+  /** AUDIO only. */
+  media_duration_seconds: number | null;
   read_at: string | null;
   announcement_id: string | null;
   is_mine: boolean;
@@ -436,6 +452,10 @@ export interface EnrollmentSchedule {
   rest_days: number[];
   current_day: number;
   days: EnrollmentScheduleDay[];
+  // `total_days`/`current_day` above stay calendar-day-shaped either way -
+  // for "completion" ignore them and read `days[].topic_states` instead,
+  // never printing a manufactured calendar day count.
+  unlock_policy: UnlockPolicy;
 }
 
 export type TranscriptState = "queued" | "extracting" | "pending_review" | "approved_for_ai";
@@ -1406,6 +1426,11 @@ export interface StudentProgress {
    * never guesses which one to show); point the student to My Learning
    * instead of implying they have nothing assigned. */
   has_multiple_enrollments: boolean;
+  /** "schedule" (default): `challenge_day`/`challenge_total_days` are real
+   * calendar days. "completion": `challenge_day` is how many lesson nodes
+   * are done/current and `challenge_total_days` is the real node count -
+   * neither is a calendar date; never render "Day N of 30" for this policy. */
+  unlock_policy: UnlockPolicy;
   last_7_days_active: boolean[];
   last_7_days_dates: string[];
   badges: Badge[];
@@ -1440,4 +1465,8 @@ export interface ChallengeCalendar {
    * template for the student's level, or a Pro student with none assigned) -
    * distinct from "a template exists but has nothing scheduled." */
   has_template: boolean;
+  /** "schedule" (default): `day` numbers are real calendar days, `missed`
+   * can occur. "completion": `day` is a pure ordering key (no calendar
+   * date), `total_days` is the real lesson-node count, never `missed`. */
+  unlock_policy: UnlockPolicy;
 }

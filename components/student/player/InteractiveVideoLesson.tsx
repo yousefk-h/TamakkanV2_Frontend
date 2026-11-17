@@ -31,7 +31,6 @@ function completed(checkpoint: InteractiveVideoCheckpoint, attempt: ExerciseAtte
 export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatched }: { topic: TopicPublic; enrollmentId?: string; onDiscuss: () => void; onWatched: () => void }) {
   const { t } = useI18n();
   const stageRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [attempts, setAttempts] = useState<Record<number, ExerciseAttemptPublic>>({});
   // "practice_with_mariam" completion, keyed by checkpoint id (not exercise_index - these checkpoints have none).
@@ -45,15 +44,23 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
   const [retryNonce, setRetryNonce] = useState<Record<string, number>>({});
   const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null);
   const [lessonFullscreen, setLessonFullscreen] = useState(false);
-  // iOS Safari (every WebKit-based iOS browser) has no `Element.requestFullscreen()` support on an arbitrary
-  // non-<video> element - only `<video>.webkitEnterFullscreen()`, which fullscreens the video alone, exactly what
-  // this stage deliberately avoids (see the component doc above). When the real Fullscreen API is unavailable or a
-  // call to it fails, this flips on instead: a CSS-only overlay (`position: fixed; inset: 0`) using the SAME stage
-  // layout/state/button, so "Full lesson screen" still works meaningfully there, just without OS fullscreen chrome.
-  const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
+  // True only while fullscreen is active via the CSS-only fallback below (never together with a real
+  // `document.fullscreenElement`) - lets Escape/cleanup know which mechanism to unwind.
+  const [cssFullscreenFallback, setCssFullscreenFallback] = useState(false);
+  // Entrance-only slide-up/fade-in for the bottom-up popup below - toggled a tick after `active` becomes truthy so
+  // the initial "off-screen" classes actually paint before the transition target classes apply.
+  const [popupEntered, setPopupEntered] = useState(false);
   const checkpoints = useMemo(() => [...topic.interactive_video_checkpoints].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds), [topic.interactive_video_checkpoints]);
   const active = checkpoints.find(item => item.id === activeCheckpointId) ?? null;
   const activeIndex = active ? checkpoints.findIndex(item => item.id === active.id) : -1;
+  useEffect(() => {
+    // Synchronizing local animation state with an external change (which checkpoint, if any, is active) - not
+    // derivable from props/state alone, so this is the legitimate "subscribe to an external change" case.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!active) { setPopupEntered(false); return; }
+    const frame = requestAnimationFrame(() => setPopupEntered(true));
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
 
   // Fetches every Practice with Mariam checkpoint's completion once per checkpoint set, so an earlier-in-the-timeline
   // one already completed on a prior visit doesn't wrongly block `enforceSeek`/`enforceCheckpoint` below. A failed
@@ -136,81 +143,118 @@ export function InteractiveVideoLesson({ topic, enrollmentId, onDiscuss, onWatch
     setRetryNonce(current => ({ ...current, [checkpointId]: (current[checkpointId] ?? 0) + 1 }));
     setPracticeIssue(null);
   }, []);
-  // "Exit for now": closes the practice panel and leaves the video exactly where it is (already paused) without
-  // marking the checkpoint complete - never trapping the student on a broken session, never losing their place or
-  // silently granting credit. Pressing play again simply re-opens this same checkpoint via `enforceCheckpoint`.
-  const exitPractice = useCallback(() => {
+  // Closing the floating activity popup (exercise OR practice, "Exit for now" on a failed session, or the popup's
+  // own minimize control) leaves the video exactly where it is (already paused) without marking the checkpoint
+  // complete - never trapping the student on a broken session, never losing their place or silently granting
+  // credit, never letting a popup close count as completion. Pressing play again simply re-opens this same
+  // checkpoint via `enforceCheckpoint`/`enforceSeek`, which re-evaluate completion from server-backed state only.
+  const closeActivityPopup = useCallback(() => {
     setPracticeIssue(null);
     setActiveCheckpointId(null);
   }, []);
+  // The real Fullscreen API on the whole lesson stage (video + timeline/controls + any open checkpoint popup, all
+  // descendants of `stageRef`) where the browser actually supports it - this is the one real fullscreen, not an
+  // approximation, so the OS/browser's own chrome genuinely goes away and Escape/rotation/resize are handled by
+  // the platform itself. Synced here (not just set optimistically) so an external exit - the browser's own Escape
+  // handling, or the user exiting via browser UI - is always reflected.
   useEffect(() => {
-    // Only the real Fullscreen API fires this event - a pseudoFullscreen toggle never touches
-    // `document.fullscreenElement`, so this never fights the manual pseudo-fullscreen state below.
-    const syncFullscreen = () => { if (!pseudoFullscreen) setLessonFullscreen(document.fullscreenElement === stageRef.current); };
+    const syncFullscreen = () => {
+      if (document.fullscreenElement === stageRef.current) { setLessonFullscreen(true); return; }
+      // Only clear when the real API, not the CSS fallback, is what's active - the fallback has no
+      // `fullscreenElement` to sync from at all, and toggling it off is handled by `toggleLessonFullscreen`/Escape
+      // below instead.
+      if (!cssFullscreenFallback) setLessonFullscreen(false);
+    };
     document.addEventListener("fullscreenchange", syncFullscreen);
     return () => document.removeEventListener("fullscreenchange", syncFullscreen);
-  }, [pseudoFullscreen]);
-  const enterPseudoFullscreen = useCallback(() => {
-    setPseudoFullscreen(true);
-    setLessonFullscreen(true);
-  }, []);
-  const exitPseudoFullscreen = useCallback(() => {
-    setPseudoFullscreen(false);
-    setLessonFullscreen(false);
-  }, []);
-  const toggleLessonFullscreen = useCallback(async () => {
-    if (pseudoFullscreen) { exitPseudoFullscreen(); return; }
-    const supportsRealFullscreen = typeof document !== "undefined" && document.fullscreenEnabled && typeof stageRef.current?.requestFullscreen === "function";
-    if (!supportsRealFullscreen) { enterPseudoFullscreen(); return; }
-    try {
-      if (document.fullscreenElement === stageRef.current) await document.exitFullscreen();
-      else await stageRef.current?.requestFullscreen();
-    } catch {
-      // Real Fullscreen API present but this call failed (e.g. a browser-specific gesture restriction) - fall back
-      // to the same CSS-only pseudo-fullscreen rather than leaving the button inert. Native playback and answering
-      // still work either way.
-      enterPseudoFullscreen();
-    }
-  }, [pseudoFullscreen, enterPseudoFullscreen, exitPseudoFullscreen]);
-  // Mobile "scroll to activity" affordance: when a checkpoint becomes active on a narrow (sub-`lg`) layout, bring
-  // the activity panel into view instead of leaving it off-screen below a tall paused video. Desktop/tablet already
-  // shows the panel beside the video in the same viewport, so this is scoped to narrow widths only.
+  }, [cssFullscreenFallback]);
+  // Escape only needs manual handling for the CSS fallback - the real Fullscreen API already exits on Escape
+  // natively, which `fullscreenchange` above picks up.
   useEffect(() => {
-    if (!active || typeof window === "undefined" || window.innerWidth >= 1024) return;
-    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [active]);
+    if (!cssFullscreenFallback) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setCssFullscreenFallback(false); setLessonFullscreen(false); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [cssFullscreenFallback]);
+  const toggleLessonFullscreen = useCallback(async () => {
+    const stage = stageRef.current;
+    if (lessonFullscreen) {
+      if (document.fullscreenElement === stage) await document.exitFullscreen().catch(() => undefined);
+      setCssFullscreenFallback(false);
+      setLessonFullscreen(false);
+      return;
+    }
+    // Feature-detected, not browser-sniffed: Safari/iOS (and any other environment where a non-video element's
+    // Fullscreen API isn't usable) fails one of these checks and falls through to the CSS-only "fill the
+    // viewport" state below instead of silently doing nothing. Exiting fullscreen - either way - never touches
+    // the video's `currentTime`, the active checkpoint, or a live Mariam session; only the container's CSS
+    // changes, so progress/an open popup/an active call all survive untouched.
+    if (stage && document.fullscreenEnabled && typeof stage.requestFullscreen === "function") {
+      try {
+        await stage.requestFullscreen();
+        setLessonFullscreen(true);
+        return;
+      } catch {
+        // Falls through to the CSS fallback below - a real but unexpected rejection (e.g. a permissions-policy
+        // restriction) is not pretended to be a successful real fullscreen.
+      }
+    }
+    setCssFullscreenFallback(true);
+    setLessonFullscreen(true);
+  }, [lessonFullscreen]);
 
   if (!topic.uploaded_video_url) return <p role="alert" className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">This interactive lesson is unavailable because its uploaded video is missing.</p>;
-  return <div ref={stageRef} className={`${lessonFullscreen ? "grid h-[100dvh] grid-rows-[minmax(0,1fr)_auto] gap-0 bg-brand-navy p-4 lg:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)] lg:grid-rows-1" : "space-y-4"}${pseudoFullscreen ? " fixed inset-0 z-50 overflow-y-auto" : ""}`}>
-    <div className={`relative min-h-0 overflow-hidden ${lessonFullscreen ? "interactive-video-media rounded-2xl bg-black" : "interactive-video-media rounded-2xl bg-brand-navy shadow-card"}`}>
+  return <div ref={stageRef} className={lessonFullscreen ? "relative h-[100dvh] bg-black p-3 sm:p-4" : "relative"}>
+    <div className={`relative overflow-hidden bg-brand-navy ${lessonFullscreen ? "h-full rounded-2xl" : "rounded-2xl shadow-card"}`}>
+      {/* `controlsList="nofullscreen"` hides the native video fullscreen button in Chrome/Edge/Firefox, which
+      otherwise duplicates the button below - Safari ignores controlsList entirely and will still show its own, a
+      known platform limitation with no clean workaround short of replacing `controls` with a fully custom bar. */}
       <video ref={videoRef} src={topic.uploaded_video_url} controls controlsList="nofullscreen" playsInline preload="metadata" className={lessonFullscreen ? "h-full w-full object-contain" : "aspect-video w-full object-contain"} onPlay={onWatched} onTimeUpdate={enforceCheckpoint} onSeeking={enforceSeek} onLoadedMetadata={enforceSeek}>Your browser does not support video playback.</video>
       <button type="button" onClick={() => void toggleLessonFullscreen()} className="absolute right-3 top-3 z-10 min-h-10 rounded-lg bg-brand-navy/90 px-3 text-sm font-bold text-white shadow-sm ring-1 ring-white/30">{lessonFullscreen ? "Exit full lesson screen" : "Full lesson screen"}</button>
-    </div>
-    {active ? <section ref={panelRef} aria-live="polite" className={`checkpoint-panel-in checkpoint-panel-safe ${lessonFullscreen ? "min-h-0 overflow-y-auto rounded-b-2xl bg-card p-4 lg:rounded-b-none lg:rounded-r-2xl" : "rounded-2xl border-2 border-brand-blue bg-brand-primary-pale p-3 sm:p-4"}`}>
-      <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted">{t("player.exerciseProgress", { current: activeIndex + 1, total: checkpoints.length })} · {activityKindLabel(checkpointKind(active), t)}</p>
-      {checkpointKind(active) === "practice_with_mariam" ? <>
-        <p className="mb-3 text-sm font-extrabold text-brand-blue">Video paused · practice with Mariam to continue</p>
-        {practiceIssue === active.id ? <div className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">
-          <p className="m-0 font-bold">The live session did not complete.</p>
-          <p className="m-0 mt-1 text-xs">You can try again, or exit for now - your place in the video is kept either way.</p>
-          <div className="mt-3 flex gap-2">
-            <button type="button" onClick={() => retryPractice(active.id)} className="min-h-10 rounded-lg bg-brand-blue px-3 text-sm font-bold text-white">Retry</button>
-            <button type="button" onClick={exitPractice} className="min-h-10 rounded-lg border border-line bg-card px-3 text-sm font-bold text-ink">Exit for now</button>
+
+      {/* The activity popup now always rises from the bottom and covers the video/stage area - on every
+      breakpoint, not just mobile, and whether or not `lessonFullscreen` is on (this is a descendant of `stageRef`
+      either way, so it's contained correctly in both modes). It is the primary interaction surface while a
+      checkpoint is active: no permanently reserved column, no separate page. Dismissing it (✕, Escape, or tapping
+      the backdrop) only minimizes - the video stays paused and the checkpoint stays incomplete until the server
+      confirms otherwise; pressing play re-opens the same checkpoint via `enforceCheckpoint`/`enforceSeek`. */}
+      {active && <>
+        <div onClick={closeActivityPopup} aria-hidden="true" className={`fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px] transition-opacity duration-300 ${popupEntered ? "opacity-100" : "opacity-0"}`} />
+        <section aria-live="polite" className={`fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[85dvh] w-full overflow-y-auto rounded-t-3xl bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgb(0,0,0,0.35)] transition-transform duration-300 ease-out sm:max-w-xl sm:rounded-t-[28px] ${popupEntered ? "translate-y-0" : "translate-y-full"}`}>
+          <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-line" aria-hidden="true" />
+          <div className="mb-3 flex items-start justify-between gap-2">
+            <p className="m-0 text-sm font-extrabold text-brand-blue">{checkpointKind(active) === "practice_with_mariam" ? "Practice with Mariam to continue" : "Complete this activity to continue"}</p>
+            <button type="button" onClick={closeActivityPopup} aria-label="Minimize activity" title="Minimize (your place is kept, nothing is marked complete)" className="grid size-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-bg hover:text-ink">✕</button>
           </div>
-        </div> : <CheckpointMariamSession
-          key={`${active.id}-${retryNonce[active.id] ?? 0}`}
-          topicId={topic.id}
-          enrollmentId={enrollmentId}
-          checkpointId={active.id}
-          fixedDurationMinutes={active.session_duration_minutes ?? 2}
-          onEnded={reason => void handlePracticeEnded(active, reason)}
-        />}
-      </> : <>
-        <p className="mb-3 text-sm font-extrabold text-brand-blue">Video paused · complete this activity to continue</p>
-        {/* Exercise checkpoints always carry a real exercise_index - only "practice_with_mariam" (the branch above)
-        omits it; the type is optional purely to accommodate that other kind. */}
-        <LessonExercises topic={topic} enrollmentId={enrollmentId} onVideo={() => undefined} onDiscuss={onDiscuss} onlyExerciseIndices={[active.exercise_index!]} onAttemptSaved={receiveAttempt} onAttemptsLoaded={receiveAttempts} />
+          <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted">{t("player.exerciseProgress", { current: activeIndex + 1, total: checkpoints.length })} · {activityKindLabel(checkpointKind(active), t)}</p>
+          {checkpointKind(active) === "practice_with_mariam" ? (
+            practiceIssue === active.id ? <div className="rounded-xl border border-brand-coral bg-brand-coral-pale p-4 text-sm text-brand-coral">
+              <p className="m-0 font-bold">The live session did not complete.</p>
+              <p className="m-0 mt-1 text-xs">You can try again, or exit for now - your place in the video is kept either way.</p>
+              <div className="mt-3 flex gap-2">
+                <button type="button" onClick={() => retryPractice(active.id)} className="min-h-10 rounded-lg bg-brand-blue px-3 text-sm font-bold text-white">Retry</button>
+                <button type="button" onClick={closeActivityPopup} className="min-h-10 rounded-lg border border-line bg-card px-3 text-sm font-bold text-ink">Exit for now</button>
+              </div>
+            </div> : <CheckpointMariamSession
+              key={`${active.id}-${retryNonce[active.id] ?? 0}`}
+              topicId={topic.id}
+              enrollmentId={enrollmentId}
+              checkpointId={active.id}
+              fixedDurationMinutes={active.session_duration_minutes ?? 2}
+              conversationGoal={active.conversation_goal}
+              learningObjective={active.learning_objective}
+              onEnded={reason => void handlePracticeEnded(active, reason)}
+            />
+          ) : (
+            // Exercise checkpoints always carry a real exercise_index - only "practice_with_mariam" (the branch
+            // above) omits it; the type is optional purely to accommodate that other kind.
+            <LessonExercises topic={topic} enrollmentId={enrollmentId} onVideo={() => undefined} onDiscuss={onDiscuss} onlyExerciseIndices={[active.exercise_index!]} onAttemptSaved={receiveAttempt} onAttemptsLoaded={receiveAttempts} />
+          )}
+        </section>
       </>}
-    </section> : <p className={`checkpoint-panel-in ${lessonFullscreen ? "flex items-center justify-center rounded-b-2xl bg-card p-4 text-center text-sm text-muted lg:rounded-b-none lg:rounded-r-2xl" : "rounded-xl bg-bg p-3 text-sm text-muted"}`}>Watch the video. It will pause at your lesson activities.</p>}
+    </div>
+    {!active && !lessonFullscreen && <p className="mt-3 text-sm text-muted">Watch the video. It will pause at your lesson activities.</p>}
   </div>;
 }
