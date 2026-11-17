@@ -175,8 +175,15 @@ export default function StudentChallengePage() {
     }
     const dayClasses = classesByDay.get(d.day) ?? [];
     const liveClassTitle = dayClasses.length > 0 ? dayClasses.map(c => `${c.title} (${formatDateTime(c.scheduled_at)})`).join(", ") : undefined;
+    // A locked future day's `courses` is only a *preview* of whatever is currently backlogged (see the backend's
+    // own `_build_schedule` docstring - "not a commitment about what will actually land there"), so the exact
+    // same not-yet-completed topic can legitimately repeat across many future days. Showing that one real topic's
+    // title as if it were each day's own distinct lesson would be misleading (and gives every locked node the same
+    // React key) - a locked node gets a generic placeholder label and a day-qualified key instead; only a real
+    // current/done/missed node shows its real lesson title.
     return d.courses.map((c, index): PathNode => ({
-      id: c.topic.id, title: c.topic.title, state: c.state, kind: "lesson", href: `/student/lessons/${c.topic.id}`,
+      id: `${c.topic.id}-day${d.day}`, title: c.state === "locked" ? t("challenge.lockedLessonPlaceholder") : c.topic.title, state: c.state, kind: "lesson",
+      href: `/student/lessons/${c.topic.id}`,
       liveClassTitle: index === 0 ? liveClassTitle : undefined,
       groupLabel: index === 0 ? t("challenge.dayLabel", { day: d.day }) : undefined,
     }));

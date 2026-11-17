@@ -59,7 +59,16 @@ export default function StudentHomePage() {
     slot.topics
       .map((ts): PathNode | null => {
         const topic = topicsById.get(ts.topic_id);
-        return topic ? { id: topic.id, title: topic.title, state: ts.state, kind: "lesson", href: `/student/lessons/${topic.id}` } : null;
+        if (!topic) return null;
+        // A SCHEDULE-policy locked future day only previews whatever is currently backlogged (see the matching
+        // comment in challenge/page.tsx) - the same not-yet-completed topic can legitimately repeat across many
+        // future days, so a locked node gets a generic placeholder title and a day-qualified key rather than
+        // repeating one real lesson's name as if every locked day were that same lesson.
+        return {
+          id: `${topic.id}-day${slot.day}`,
+          title: ts.state === "locked" ? t("challenge.lockedLessonPlaceholder") : topic.title,
+          state: ts.state, kind: "lesson", href: `/student/lessons/${topic.id}`,
+        };
       })
       .filter((node): node is PathNode => node !== null)
   );

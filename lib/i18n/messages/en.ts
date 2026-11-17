@@ -628,6 +628,7 @@ export const en = {
     lockedExplainerCompletion: "Finish the lesson above to unlock this one.",
     lockedExplainerSchedule: "This lesson unlocks on its scheduled day.",
     lockedExplainerTitle: "Locked",
+    lockedLessonPlaceholder: "Upcoming lesson",
     close: "Close",
   },
   lessons: {

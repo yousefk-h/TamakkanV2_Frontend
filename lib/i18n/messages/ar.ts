@@ -625,6 +625,7 @@ export const ar = {
     lockedExplainerCompletion: "أتمّ الدرس السابق لفتح هذا الدرس.",
     lockedExplainerSchedule: "يُفتح هذا الدرس في يومه المحدد.",
     lockedExplainerTitle: "مُغلق",
+    lockedLessonPlaceholder: "درس قادم",
     close: "إغلاق",
   },
   lessons: {
